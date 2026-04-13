@@ -2,7 +2,7 @@
 
 A conversational AI infrastructure monitoring tool. Ask plain-English questions like _"why did costs spike on Tuesday?"_ or _"are there any failed jobs in the last 24 hours?"_ and get a single intelligent answer drawn from PostgreSQL, Redis, and AWS Cost Explorer.
 
-Built to demonstrate production-grade agentic AI engineering — Claude reasons across multiple live data sources using an agentic tool loop, decides which tools to call (and in what order), and synthesizes all results into one coherent response.
+Built to demonstrate **production-grade agentic AI engineering** — Claude reasons across multiple live data sources using an agentic tool loop, decides which tools to call (and in what order), and synthesizes all results into one coherent response.
 
 ---
 
@@ -12,7 +12,7 @@ Built to demonstrate production-grade agentic AI engineering — Claude reasons 
 User question
      │
      ▼
-Express API  ──►  Claude Sonnet (Anthropic)
+Express API  ──►  Claude Sonnet 4.6 (Anthropic)
                        │
            ┌───────────┼───────────┐
            ▼           ▼           ▼
@@ -29,30 +29,35 @@ Express API  ──►  Claude Sonnet (Anthropic)
               Single synthesized reply
 ```
 
-1. The user sends a message to `POST /api/chat`
-2. The Express orchestrator passes it to the Claude agentic loop
+### The flow:
+
+1. User sends a message to `POST /api/chat`
+2. Express orchestrator passes it to the Claude agentic loop
 3. Claude inspects its three tools and decides which to call
 4. Each tool is backed by a standalone **MCP server** — separate Node.js processes communicating over stdio
 5. Claude receives the tool results, reasons across them, and returns one answer
+
+**Key insight:** Claude has no hard-coded routing logic. It picks tools purely from their descriptions. Each description is crafted to be precise, specific, and non-overlapping — this is the most critical code in the project.
 
 ---
 
 ## Tech stack
 
-| Layer         | Technology                                                    |
-| ------------- | ------------------------------------------------------------- |
-| Runtime       | Node.js 24 (ESM)                                              |
-| Language      | TypeScript 5 — strict mode, no `any`                          |
-| API framework | Express 5                                                     |
-| AI model      | `claude-sonnet-4-6` via `@anthropic-ai/sdk`                   |
-| Tool protocol | Model Context Protocol (MCP) — `@modelcontextprotocol/sdk@^1` |
-| Database      | PostgreSQL 16 via `pg` pool                                   |
-| Cache         | Redis 7 via `ioredis`                                         |
-| Cloud costs   | AWS SDK v3 — `@aws-sdk/client-cost-explorer`                  |
-| Validation    | Zod                                                           |
-| Logging       | Pino + pino-pretty                                            |
-| Testing       | Vitest                                                        |
-| Dev runner    | `tsx`                                                         |
+| Layer             | Technology                                                         |
+| ----------------- | ------------------------------------------------------------------ |
+| **Runtime**       | Node.js 24 (ESM modules, native `--env-file` flag)                 |
+| **Language**      | TypeScript 6 — strict mode, no `any`, `exactOptionalPropertyTypes` |
+| **API**           | Express 5                                                          |
+| **AI Model**      | `claude-sonnet-4-6` (via `@anthropic-ai/sdk`)                      |
+| **Tool Protocol** | Model Context Protocol (MCP) — `@modelcontextprotocol/sdk@^1`      |
+| **Database**      | PostgreSQL 16 (via `pg` pool with parameterized queries)           |
+| **Cache**         | Redis 7 (via `ioredis`)                                            |
+| **Cloud Costs**   | AWS SDK v3 modular — `@aws-sdk/client-cost-explorer`               |
+| **Validation**    | Zod (env vars + request bodies)                                    |
+| **Logging**       | Pino + pino-pretty (structured JSON logs)                          |
+| **Testing**       | Vitest (integration tests against real PostgreSQL)                 |
+| **Dev Runner**    | `tsx` (never `ts-node`)                                            |
+| **Frontend**      | Angular 21 with signals, zoneless, standalone components (WIP)     |
 
 ---
 
@@ -62,50 +67,94 @@ Express API  ──►  Claude Sonnet (Anthropic)
 ai-devops-copilot/
 ├── backend/
 │   ├── src/
-│   │   ├── config/env.ts                   # Zod env validation — exits on missing vars
-│   │   ├── errors/index.ts                 # AppError hierarchy (Database, Mcp, Validation)
+│   │   ├── config/
+│   │   │   └── env.ts                      # Zod env validation — exits on missing vars
+│   │   ├── errors/
+│   │   │   └── index.ts                    # AppError hierarchy (Database, Mcp, Validation)
 │   │   ├── lib/
-│   │   │   ├── database.ts                 # pg pool + parameterized query helper
+│   │   │   ├── database.ts                 # pg pool + query helper + withTransaction
+│   │   │   ├── database.test.ts            # Vitest integration tests
 │   │   │   ├── redis.ts                    # ioredis client
 │   │   │   └── logger.ts                   # Pino structured logger factory
 │   │   ├── mcp-servers/
 │   │   │   ├── postgres-server.ts          # MCP tool: query_failed_jobs
 │   │   │   ├── redis-server.ts             # MCP tool: get_redis_stats
 │   │   │   └── aws-server.ts               # MCP tool: get_aws_costs
-│   │   ├── models/job.ts                   # TypeScript row/stat interfaces
+│   │   ├── models/
+│   │   │   └── job.ts                      # TypeScript row/stat interfaces
 │   │   ├── orchestrator/
 │   │   │   ├── claude.ts                   # Agentic loop — calls Claude, dispatches tools
-│   │   │   ├── tools.ts                    # Anthropic tool definitions
-│   │   │   ├── tool-dispatcher.ts          # Routes Claude tool calls to MCP servers
-│   │   │   ├── index.ts                    # Express app factory
-│   │   │   ├── middleware/error-handler.ts # Centralized error handler
-│   │   │   └── routes/chat.ts              # POST /api/chat
+│   │   │   ├── tools.ts                    # Anthropic tool definitions for Claude API
+│   │   │   ├── tool-dispatcher.ts          # Routes Claude tool calls to implementations
+│   │   │   ├── index.ts                    # Express app factory + middleware
+│   │   │   ├── middleware/
+│   │   │   │   └── error-handler.ts        # Centralized error handler
+│   │   │   └── routes/
+│   │   │       └── chat.ts                 # POST /api/chat endpoint
 │   │   └── index.ts                        # Entry point + graceful shutdown
-│   ├── docker/init.sql                     # Seed schema (jobs table)
+│   ├── docker/
+│   │   └── init.sql                        # Seed schema (jobs table + test data)
 │   ├── docker-compose.yml                  # PostgreSQL + Redis
-│   └── package.json
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── SETUP.md                            # Complete setup guide
 └── frontend/                               # Angular 21 (in progress)
 ```
 
 ---
 
-## Key design decisions
+## 🔑 Key design decisions
 
-### Agentic tool loop
+### 1. Agentic tool loop
 
-The Claude loop in `orchestrator/claude.ts` runs until `stop_reason === 'end_turn'`. A guard breaks the loop on any other unexpected stop reason to prevent infinite spinning. Both assistant messages and tool results are pushed into `messages[]` on every iteration so Claude maintains full context.
+The Claude loop in `orchestrator/claude.ts` runs **until `stop_reason === 'end_turn'`**. A safety guard breaks the loop on any unexpected stop reason to prevent infinite spinning. Both assistant messages and tool results are pushed into `messages[]` on every iteration so Claude maintains full context across multiple tool calls.
 
-### MCP servers as standalone processes
+### 2. MCP servers as standalone processes
 
-Each data source is a separate Node.js process communicating over `StdioServerTransport`. This matches the MCP spec and keeps concerns isolated — the orchestrator never touches PostgreSQL or Redis directly.
+Each data source is a **separate Node.js process** communicating over `StdioServerTransport`. This matches the MCP spec and keeps concerns isolated — the orchestrator never touches PostgreSQL or Redis directly. Each server can be run independently for testing:
 
-### Tool descriptions drive routing
+```bash
+npm run mcp:postgres  # Exposes query_failed_jobs tool
+npm run mcp:redis     # Exposes get_redis_stats tool
+npm run mcp:aws       # Exposes get_aws_costs tool
+```
 
-Claude has no hard-coded routing logic. It picks tools purely from their descriptions. Each description starts with the data source, states exactly what it returns, and ends with unambiguous trigger phrases to prevent overlap.
+### 3. Tool descriptions drive routing
 
-### No `any`, no implicit unknowns
+Claude has **no hard-coded routing logic**. It picks tools purely from their descriptions. Each description:
 
-Strict TypeScript throughout — `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`. Redis INFO output is parsed from raw strings; PostgreSQL results flow through typed row interfaces.
+- Starts with the data source explicitly: _"Query PostgreSQL..."_, _"Call AWS..."_
+- States exactly what it returns
+- Ends with unambiguous trigger phrases to prevent overlap
+- Is tested to ensure zero ambiguity between tools
+
+**This is the most critical code in the project** — poor tool descriptions cause Claude to route incorrectly.
+
+### 4. Strict TypeScript everywhere
+
+- `noUncheckedIndexedAccess`: Array access returns `T | undefined`
+- `exactOptionalPropertyTypes`: `{ x?: string }` cannot be set to `undefined`
+- No `any` anywhere — use `unknown` for truly uncertain types
+- Redis INFO output is parsed from raw strings with proper error handling
+- PostgreSQL results flow through typed row interfaces
+
+### 5. Parameterized queries only
+
+All SQL uses **parameterized queries** — no string interpolation anywhere. PostgreSQL `INTERVAL` requires `::interval` cast when parameterized:
+
+```typescript
+// ✅ Correct
+await query(`SELECT * FROM jobs WHERE created_at > NOW() - $1::interval`, [
+  '24 hours',
+]);
+
+// ❌ SQL injection risk
+await query(`SELECT * FROM jobs WHERE created_at > NOW() - '${timeRange}'`);
+```
+
+### 6. Error grouping in MCP tools
+
+The `query_failed_jobs` tool automatically groups errors by message and includes the pattern breakdown in its response. This surfaces systemic issues (e.g., "10 jobs failed with 'Connection timeout'") without Claude needing to ask for it.
 
 ---
 
@@ -113,10 +162,10 @@ Strict TypeScript throughout — `noUncheckedIndexedAccess`, `exactOptionalPrope
 
 ### Prerequisites
 
-- Node.js ≥ 24
-- Docker + Docker Compose
-- An Anthropic API key
-- AWS credentials with `ce:GetCostAndUsage` read permission
+- **Node.js ≥ 24**
+- **Docker + Docker Compose**
+- **Anthropic API key** (get from https://console.anthropic.com)
+- **AWS credentials** with `ce:GetCostAndUsage` read permission
 
 ### 1. Clone and install
 
@@ -132,18 +181,18 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` with your credentials:
 
 ```env
 NODE_ENV=development
 PORT=3000
-
 DATABASE_URL=postgresql://copilot:copilot_dev@localhost:5432/copilot_db
 REDIS_URL=redis://localhost:6379
-
 ANTHROPIC_API_KEY=sk-ant-...
-
 AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+ALLOWED_ORIGIN=http://localhost:4200
 ```
 
 ### 3. Start infrastructure
@@ -152,13 +201,27 @@ AWS_REGION=us-east-1
 docker compose up -d
 ```
 
-This starts PostgreSQL 16 and Redis 7. The `docker/init.sql` seed creates the `jobs` table and inserts sample failed jobs.
+This starts:
+
+- **PostgreSQL 16** on `:5432` (auto-seeds with `docker/init.sql`)
+- **Redis 7** on `:6379`
+
+Verify both are healthy:
+
+```bash
+docker compose ps
+# NAME               STATUS
+# copilot_postgres   Up (healthy)
+# copilot_redis      Up (healthy)
+```
 
 ### 4. Run the server
 
 ```bash
 npm run dev
 ```
+
+Server starts on http://localhost:3000 with hot reload.
 
 ---
 
@@ -168,7 +231,7 @@ npm run dev
 
 Send a natural language question about your infrastructure.
 
-**Request**
+**Request:**
 
 ```json
 {
@@ -176,7 +239,7 @@ Send a natural language question about your infrastructure.
 }
 ```
 
-**Response**
+**Response:**
 
 ```json
 {
@@ -185,49 +248,152 @@ Send a natural language question about your infrastructure.
 }
 ```
 
-**Example questions**
+### Example questions
 
-- `"How many jobs failed in the last hour?"`
-- `"What's our Redis cache hit rate?"`
-- `"Which AWS service is costing the most this month?"`
-- `"Is anything wrong with the infrastructure right now?"`
-
----
-
-## Running MCP servers individually
-
-Each MCP server can be run standalone for testing:
-
-```bash
-npm run mcp:postgres   # Exposes query_failed_jobs
-npm run mcp:redis      # Exposes get_redis_stats
-npm run mcp:aws        # Exposes get_aws_costs
+```
+"How many jobs failed in the last hour?"
+"What's our Redis cache hit rate?"
+"Which AWS service is costing the most this month?"
+"Is anything wrong with the infrastructure right now?"
+"Show me failed jobs and current cache performance"
 ```
 
 ---
 
 ## Tests
 
+Run integration tests (requires Docker running):
+
 ```bash
 npm run test        # Watch mode
 npm run test:run    # Single run
-npm run typecheck   # TypeScript only, no emit
+npm run typecheck   # TypeScript type-check only
 ```
 
-Tests use Vitest with injected mock query functions — no real database connections in unit tests. Every tool handler has coverage for the `isError: true` path (tools return errors, they never throw).
+Tests use **Vitest** with real PostgreSQL connections. Test data is prefixed with `vitest-` and cleaned up in `beforeAll` / `afterAll` hooks.
+
+**Key test coverage:**
+
+- Parameterized query helper with type safety
+- INTERVAL cast handling in time range queries
+- Error grouping pattern used by MCP tools
+- Database connection cleanup
 
 ---
 
 ## Security notes
 
-- All SQL uses parameterized queries — no string interpolation
-- Env vars are validated with Zod at startup; the process exits immediately if any are missing
+- All SQL uses parameterized queries — zero string interpolation
+- Env vars validated with Zod at startup; process exits if any are missing
 - `helmet` sets security headers on all Express responses
-- CORS is restricted to `localhost:4200` in development
-- The `@types/node` package is scoped to devDependencies; production types are inferred from the strict schema
+- CORS restricted to `localhost:4200` in development, configurable for production
+- No `any` types — strict TypeScript prevents type confusion bugs
+- Structured logging with Pino — no `console.log` anywhere in production code
+
+---
+
+## Architecture highlights
+
+### Why MCP protocol?
+
+The Model Context Protocol (MCP) is Anthropic's standard for connecting LLMs to external tools. By implementing MCP servers:
+
+- Each data source is independently testable
+- Tools can be reused across different Claude clients
+- The orchestrator stays thin — it just routes tool calls
+- Servers can be deployed separately (microservices architecture)
+
+### Why three separate MCP servers?
+
+PostgreSQL, Redis, and AWS are **isolated concerns**. Each server:
+
+- Has its own connection pool/client
+- Handles its own errors
+- Can be scaled independently
+- Can be tested in isolation
+
+### Why tool descriptions matter so much
+
+Claude decides which tool to call **purely from text descriptions**. There's no code like `if (question.includes('cost')) return awsTool()`. Instead, Claude reads:
+
+> _"Query AWS Cost Explorer for cloud spending data... Use this when the user asks about: AWS costs, cloud spend, billing..."_
+
+If two tool descriptions overlap, Claude picks randomly. If a description is vague, Claude might not call it when it should. **Tool descriptions are prompts** — they need the same care as any other LLM prompt.
+
+---
+
+## 🔧 Troubleshooting
+
+**PostgreSQL connection refused:**
+
+```bash
+docker compose logs postgres
+docker compose restart postgres
+```
+
+**Redis connection error:**
+
+```bash
+docker compose restart redis
+```
+
+**Claude API timeout:**
+
+- Check `ANTHROPIC_API_KEY` is valid
+- Verify network access to `api.anthropic.com`
+
+**AWS Cost Explorer errors:**
+
+- Ensure IAM user has `ce:GetCostAndUsage` permission
+- Check `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+
+**Tests failing:**
+
+```bash
+# Ensure Docker is running
+docker compose up -d
+# Clean stale test data
+docker compose exec postgres psql -U copilot -d copilot_db -c "DELETE FROM jobs WHERE name LIKE 'vitest-%'"
+npm run test:run
+```
+
+---
+
+## 🗺 Roadmap
+
+- [x] Backend: Node.js 24 + TypeScript + Express
+- [x] MCP servers: PostgreSQL, Redis, AWS Cost Explorer
+- [x] Claude agentic loop with tool use
+- [x] Integration tests with Vitest
+- [ ] Frontend: Angular 21 with signals and zoneless change detection
+- [ ] Conversation history persistence (currently single-turn)
+- [ ] Rate limiting middleware
+- [ ] Deployment guide (AWS ECS / Render / Railway)
+- [ ] Streaming responses for long-running tool calls
+- [ ] Additional MCP tools (GitHub, Slack, Datadog)
+
+---
+
+## 📚 Further reading
+
+- [MCP Protocol Specification](https://modelcontextprotocol.io)
+- [Anthropic Claude API Docs](https://docs.anthropic.com)
+- [Node.js 24 Release Notes](https://nodejs.org/en/blog/release/v24.0.0)
+- [TypeScript Handbook](https://www.typescriptlang.org/docs/)
+- [Pino Logger Best Practices](https://getpino.io/#/docs/best-practices)
 
 ---
 
 ## License
 
 MIT
+
+---
+
+## Contributing
+
+This is a portfolio project, but suggestions and bug reports are welcome. Open an issue or PR.
+
+---
+
+**Built with ❤️ using Node.js 24, TypeScript, Claude API, and the Model Context Protocol.**
