@@ -1,0 +1,29 @@
+{
+  "recommendations": [
+    // TypeScript & Node
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "ms-vscode.vscode-typescript-next",
+
+    // AI assistance
+    "github.copilot",
+    "github.copilot-chat",
+
+    // Testing
+    "vitest.explorer",
+
+    // Docker
+    "ms-azuretools.vscode-docker",
+
+    // Database
+    "cweijan.vscode-postgresql-client2",
+
+    // Git
+    "eamodio.gitlens",
+
+    // Utilities
+    "christian-kohler.path-intellisense",
+    "mikestead.dotenv",
+    "aaron-bond.better-comments"
+  ]
+}

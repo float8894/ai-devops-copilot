@@ -1,0 +1,44 @@
+{
+  // TypeScript — use workspace version, not VSCode bundled
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+
+  // Format on save
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  // ESLint
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // Copilot — point at our instructions file
+  "github.copilot.chat.codeGeneration.instructions": [
+    {
+      "file": ".github/copilot-instructions.md"
+    }
+  ],
+
+  // Hide build artifacts from explorer
+  "files.exclude": {
+    "dist/": true,
+    "node_modules/": true,
+    "*.tsbuildinfo": true
+  },
+
+  // Search exclusions
+  "search.exclude": {
+    "dist/": true,
+    "node_modules/": true
+  },
+
+  // Node.js path mappings for go-to-definition
+  "typescript.preferences.importModuleSpecifier": "relative",
+
+  // Vitest extension config
+  "vitest.enable": true,
+  "vitest.commandLine": "npx vitest"
+}
