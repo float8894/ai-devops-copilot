@@ -4,7 +4,7 @@
   "description": "AI DevOps Copilot — a conversational infrastructure monitoring tool built with Node.js 24 + TypeScript backend, Angular 21 frontend, and Anthropic Claude API with MCP tool use. Engineers query PostgreSQL job data, Redis cache stats, and AWS Cost Explorer in plain English. Claude reasons across all three data sources using agentic tool calling to return a single intelligent answer. Portfolio project demonstrating production-grade agentic AI engineering, MCP protocol implementation, and modern full-stack development.",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --env-file=.env --import tsx/esm --watch src/index.ts",
     "build": "tsc",
     "start": "node --env-file=.env dist/index.js",
     "dev:server": "node --env-file=.env --import tsx/esm src/index.ts",
