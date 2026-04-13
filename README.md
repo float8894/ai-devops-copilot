@@ -4,6 +4,8 @@ A conversational AI infrastructure monitoring tool. Ask plain-English questions 
 
 Built to demonstrate **production-grade agentic AI engineering** — Claude reasons across multiple live data sources using an agentic tool loop, decides which tools to call (and in what order), and synthesizes all results into one coherent response.
 
+> ** NEW:** Multi-turn conversations with full history persistence, rate limiting, and enhanced security. See [IMPROVEMENTS.md](backend/IMPROVEMENTS.md) for details.
+
 ---
 
 ## How it works
@@ -31,11 +33,12 @@ Express API  ──►  Claude Sonnet 4.6 (Anthropic)
 
 ### The flow:
 
-1. User sends a message to `POST /api/chat`
-2. Express orchestrator passes it to the Claude agentic loop
-3. Claude inspects its three tools and decides which to call
+1. User sends a message to `POST /api/chat` (optionally with `conversationId`)
+2. Express orchestrator loads conversation history from PostgreSQL
+3. Claude receives full context and decides which tools to call
 4. Each tool is backed by a standalone **MCP server** — separate Node.js processes communicating over stdio
 5. Claude receives the tool results, reasons across them, and returns one answer
+6. Both user message and Claude response are saved to PostgreSQL for future context
 
 **Key insight:** Claude has no hard-coded routing logic. It picks tools purely from their descriptions. Each description is crafted to be precise, specific, and non-overlapping — this is the most critical code in the project.
 
@@ -47,7 +50,7 @@ Express API  ──►  Claude Sonnet 4.6 (Anthropic)
 | ----------------- | ------------------------------------------------------------------ |
 | **Runtime**       | Node.js 24 (ESM modules, native `--env-file` flag)                 |
 | **Language**      | TypeScript 6 — strict mode, no `any`, `exactOptionalPropertyTypes` |
-| **API**           | Express 5                                                          |
+| **API**           | Express 5 + express-rate-limit                                     |
 | **AI Model**      | `claude-sonnet-4-6` (via `@anthropic-ai/sdk`)                      |
 | **Tool Protocol** | Model Context Protocol (MCP) — `@modelcontextprotocol/sdk@^1`      |
 | **Database**      | PostgreSQL 16 (via `pg` pool with parameterized queries)           |
@@ -76,6 +79,8 @@ ai-devops-copilot/
 │   │   │   ├── database.test.ts            # Vitest integration tests
 │   │   │   ├── redis.ts                    # ioredis client
 │   │   │   └── logger.ts                   # Pino structured logger factory
+│   │   ├── services/
+│   │   │   └── conversation.service.ts     #  Conversation history management
 │   │   ├── mcp-servers/
 │   │   │   ├── postgres-server.ts          # MCP tool: query_failed_jobs
 │   │   │   ├── redis-server.ts             # MCP tool: get_redis_stats
@@ -88,28 +93,68 @@ ai-devops-copilot/
 │   │   │   ├── tool-dispatcher.ts          # Routes Claude tool calls to implementations
 │   │   │   ├── index.ts                    # Express app factory + middleware
 │   │   │   ├── middleware/
-│   │   │   │   └── error-handler.ts        # Centralized error handler
+│   │   │   │   ├── error-handler.ts        # Centralized error handler
+│   │   │   │   └── rate-limit.ts           #  Rate limiting middleware
 │   │   │   └── routes/
 │   │   │       └── chat.ts                 # POST /api/chat endpoint
 │   │   └── index.ts                        # Entry point + graceful shutdown
 │   ├── docker/
-│   │   └── init.sql                        # Seed schema (jobs table + test data)
+│   │   ├── init.sql                        # Seed schema (jobs + conversations + messages)
+│   │   └── migrations/
+│   │       └── 001_add_conversations.sql   #  Migration for existing databases
 │   ├── docker-compose.yml                  # PostgreSQL + Redis
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── SETUP.md                            # Complete setup guide
+│   ├── SETUP.md                            # Complete setup guide
+│   ├── IMPROVEMENTS.md                     #  New features documentation
+│   └── INSTALL_IMPROVEMENTS.md             #  Installation guide for updates
 └── frontend/                               # Angular 21 (in progress)
 ```
 
 ---
 
-## 🔑 Key design decisions
+## What's New (Latest Updates)
+
+### Conversation History Persistence
+
+- Multi-turn conversations with full context
+- PostgreSQL-backed storage (conversations + messages tables)
+- Claude references previous turns: _"As we discussed earlier..."_
+- Automatic conversation creation or continuation
+
+### Rate Limiting
+
+- Chat endpoint: 20 req/15min (prod) / 100 req/15min (dev)
+- General API: 100 req/15min (prod) / 500 req/15min (dev)
+- Standard RateLimit-\* headers
+- `/health` endpoint excluded
+
+### Enhanced Security
+
+- Request size limit reduced: 1mb → 10kb (prevents DoS)
+- UUID-based conversation IDs (non-enumerable)
+- Indexed database queries (<10ms even with 1000+ messages)
+
+**See [IMPROVEMENTS.md](backend/IMPROVEMENTS.md) for complete documentation.**
+
+---
+
+## Key design decisions
 
 ### 1. Agentic tool loop
 
 The Claude loop in `orchestrator/claude.ts` runs **until `stop_reason === 'end_turn'`**. A safety guard breaks the loop on any unexpected stop reason to prevent infinite spinning. Both assistant messages and tool results are pushed into `messages[]` on every iteration so Claude maintains full context across multiple tool calls.
 
-### 2. MCP servers as standalone processes
+### 2. Conversation persistence
+
+Every conversation is stored in PostgreSQL with full message history. When a user continues a conversation (by providing `conversationId`), the entire history is loaded and passed to Claude API. This enables:
+
+- Context-aware responses across multiple turns
+- Claude referencing previous answers
+- Conversation analytics and debugging
+- Future features like conversation export and sharing
+
+### 3. MCP servers as standalone processes
 
 Each data source is a **separate Node.js process** communicating over `StdioServerTransport`. This matches the MCP spec and keeps concerns isolated — the orchestrator never touches PostgreSQL or Redis directly. Each server can be run independently for testing:
 
@@ -119,7 +164,7 @@ npm run mcp:redis     # Exposes get_redis_stats tool
 npm run mcp:aws       # Exposes get_aws_costs tool
 ```
 
-### 3. Tool descriptions drive routing
+### 4. Tool descriptions drive routing
 
 Claude has **no hard-coded routing logic**. It picks tools purely from their descriptions. Each description:
 
@@ -130,7 +175,15 @@ Claude has **no hard-coded routing logic**. It picks tools purely from their des
 
 **This is the most critical code in the project** — poor tool descriptions cause Claude to route incorrectly.
 
-### 4. Strict TypeScript everywhere
+### 5. Multi-tier rate limiting
+
+Rate limiting is applied at two levels:
+
+- **Chat endpoint:** Stricter limits (20/15min prod) because Claude API calls are expensive
+- **General API:** Relaxed limits (100/15min prod) for health checks and metadata
+- Automatically adjusts based on `NODE_ENV`
+
+### 6. Strict TypeScript everywhere
 
 - `noUncheckedIndexedAccess`: Array access returns `T | undefined`
 - `exactOptionalPropertyTypes`: `{ x?: string }` cannot be set to `undefined`
@@ -138,23 +191,19 @@ Claude has **no hard-coded routing logic**. It picks tools purely from their des
 - Redis INFO output is parsed from raw strings with proper error handling
 - PostgreSQL results flow through typed row interfaces
 
-### 5. Parameterized queries only
+### 7. Parameterized queries only
 
 All SQL uses **parameterized queries** — no string interpolation anywhere. PostgreSQL `INTERVAL` requires `::interval` cast when parameterized:
 
 ```typescript
-// ✅ Correct
+//  Correct
 await query(`SELECT * FROM jobs WHERE created_at > NOW() - $1::interval`, [
   '24 hours',
 ]);
 
-// ❌ SQL injection risk
+//  SQL injection risk
 await query(`SELECT * FROM jobs WHERE created_at > NOW() - '${timeRange}'`);
 ```
-
-### 6. Error grouping in MCP tools
-
-The `query_failed_jobs` tool automatically groups errors by message and includes the pattern breakdown in its response. This surfaces systemic issues (e.g., "10 jobs failed with 'Connection timeout'") without Claude needing to ask for it.
 
 ---
 
@@ -235,7 +284,8 @@ Send a natural language question about your infrastructure.
 
 ```json
 {
-  "message": "Why did costs spike this week and are there any related job failures?"
+  "message": "Why did costs spike this week and are there any related job failures?",
+  "conversationId": "optional-uuid-from-previous-response"
 }
 ```
 
@@ -244,8 +294,27 @@ Send a natural language question about your infrastructure.
 ```json
 {
   "reply": "AWS costs increased 34% this week, driven primarily by EC2 (+$240). In the same period, 12 jobs failed with 'ConnectionTimeout' errors — these are likely related: the EC2 spend spike coincides with auto-scaling events triggered by the retry storms from the failing jobs.",
-  "toolsUsed": ["get_aws_costs", "query_failed_jobs"]
+  "toolsUsed": ["get_aws_costs", "query_failed_jobs"],
+  "conversationId": "abc-123-def-456"
 }
+```
+
+**Multi-turn Conversation Example:**
+
+```bash
+# First message
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "How many jobs failed in the last hour?"}'
+
+# Response includes conversationId: "abc-123-def-456"
+
+# Continue conversation
+curl -X POST http://localhost:3000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "What about Redis cache?", "conversationId": "abc-123-def-456"}'
+
+# Claude now has full context from previous message
 ```
 
 ### Example questions
@@ -256,6 +325,7 @@ Send a natural language question about your infrastructure.
 "Which AWS service is costing the most this month?"
 "Is anything wrong with the infrastructure right now?"
 "Show me failed jobs and current cache performance"
+"What did we discuss about costs last time?" (multi-turn)
 ```
 
 ---
@@ -289,6 +359,9 @@ Tests use **Vitest** with real PostgreSQL connections. Test data is prefixed wit
 - CORS restricted to `localhost:4200` in development, configurable for production
 - No `any` types — strict TypeScript prevents type confusion bugs
 - Structured logging with Pino — no `console.log` anywhere in production code
+- **NEW:** Rate limiting prevents brute force and DDoS attacks
+- **NEW:** 10kb request size limit prevents memory exhaustion
+- **NEW:** UUID-based conversation IDs prevent enumeration
 
 ---
 
@@ -320,9 +393,18 @@ Claude decides which tool to call **purely from text descriptions**. There's no 
 
 If two tool descriptions overlap, Claude picks randomly. If a description is vague, Claude might not call it when it should. **Tool descriptions are prompts** — they need the same care as any other LLM prompt.
 
+### Why conversation persistence matters
+
+Without persistence, every message starts from scratch. With persistence:
+
+- Claude understands follow-up questions: _"What about the previous month?"_
+- Users can continue conversations later
+- Debugging is easier (full conversation history in database)
+- Future analytics and export features become possible
+
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 **PostgreSQL connection refused:**
 
@@ -357,30 +439,42 @@ docker compose exec postgres psql -U copilot -d copilot_db -c "DELETE FROM jobs 
 npm run test:run
 ```
 
+**Rate limit exceeded during development:**
+
+```bash
+# Development limits are 100 req/15min for chat
+# Wait 15 minutes or restart server to reset counters
+npm run dev
+```
+
 ---
 
-## 🗺 Roadmap
+## Roadmap
 
 - [x] Backend: Node.js 24 + TypeScript + Express
 - [x] MCP servers: PostgreSQL, Redis, AWS Cost Explorer
 - [x] Claude agentic loop with tool use
 - [x] Integration tests with Vitest
+- [x] **Conversation history persistence**
+- [x] **Rate limiting middleware**
+- [x] **Enhanced security (10kb payload limit)**
 - [ ] Frontend: Angular 21 with signals and zoneless change detection
-- [ ] Conversation history persistence (currently single-turn)
-- [ ] Rate limiting middleware
 - [ ] Deployment guide (AWS ECS / Render / Railway)
 - [ ] Streaming responses for long-running tool calls
 - [ ] Additional MCP tools (GitHub, Slack, Datadog)
+- [ ] Conversation export (JSON, markdown, PDF)
+- [ ] Full-text search on conversation history
 
 ---
 
-## 📚 Further reading
+## Further reading
 
 - [MCP Protocol Specification](https://modelcontextprotocol.io)
 - [Anthropic Claude API Docs](https://docs.anthropic.com)
 - [Node.js 24 Release Notes](https://nodejs.org/en/blog/release/v24.0.0)
 - [TypeScript Handbook](https://www.typescriptlang.org/docs/)
 - [Pino Logger Best Practices](https://getpino.io/#/docs/best-practices)
+- [Express Rate Limit](https://express-rate-limit.mintlify.app/)
 
 ---
 

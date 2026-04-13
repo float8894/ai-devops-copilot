@@ -397,8 +397,8 @@ npm run test:run
 
 ## Next Steps
 
-1. ✅ Backend complete
-2. 🚧 Build Angular 21 frontend (see `/frontend` directory)
+1.  Backend complete
+2.  Build Angular 21 frontend (see `/frontend` directory)
 3. Deploy to production (AWS ECS, Render, or Railway)
 
 For development workflow, always run:

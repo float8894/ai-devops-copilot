@@ -26,7 +26,7 @@ type ChatRequestBody = z.infer<typeof ChatRequestSchema>;
 interface ChatResponseBody {
   reply: string;
   toolsUsed: string[];
-  conversationId?: string;
+  conversationId: string;
 }
 
 interface ErrorResponseBody {
@@ -56,14 +56,17 @@ chatRouter.post(
         'Chat request received',
       );
 
-      const result = await runCopilotQuery(message);
+      const result = await runCopilotQuery(message, conversationId);
 
-      log.info({ tools_used: result.toolsUsed }, 'Chat request completed');
+      log.info(
+        { tools_used: result.toolsUsed, conversation_id: result.conversationId },
+        'Chat request completed',
+      );
 
       res.json({
         reply: result.reply,
         toolsUsed: result.toolsUsed,
-        ...(conversationId !== undefined && { conversationId }),
+        conversationId: result.conversationId,
       });
     } catch (err) {
       next(err);

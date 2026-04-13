@@ -1,3 +1,18 @@
+export interface ConversationRow {
+  id: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface MessageRow {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  tools_used: string[] | null;
+  created_at: Date;
+}
+
 export interface JobRow {
   id: string;
   name: string;

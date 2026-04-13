@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLogger } from '../lib/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { generalRateLimiter, chatRateLimiter } from './middleware/rate-limit.js';
 import { chatRouter } from './routes/chat.js';
 import { env } from '../config/env.js';
 
@@ -19,6 +20,7 @@ export const requestContext = new AsyncLocalStorage<RequestContext>();
 export function createApp(): Application {
   const app = express();
 
+  // Security headers
   app.use(helmet());
 
   // CORS — Angular runs on :4200 in dev, separate origin in prod
@@ -32,7 +34,17 @@ export function createApp(): Application {
     }),
   );
 
-  app.use(express.json({ limit: '1mb' }));
+  // Request size limits
+  app.use(express.json({ 
+    limit: '10kb', // Smaller limit for JSON bodies (was 1mb)
+  }));
+  app.use(express.urlencoded({ 
+    extended: true, 
+    limit: '10kb',
+  }));
+
+  // Global rate limiter — applies to all routes except /health
+  app.use(generalRateLimiter);
 
   // Attach requestId to every request via AsyncLocalStorage
   app.use((_req, _res, next) => {
@@ -50,12 +62,13 @@ export function createApp(): Application {
     next();
   });
 
-  // Health check — no auth required
+  // Health check — no auth required, no rate limiting
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
-  app.use('/api/chat', chatRouter);
+  // Chat endpoint with stricter rate limiting
+  app.use('/api/chat', chatRateLimiter, chatRouter);
 
   // Centralized error handler — must be last
   app.use(errorHandler);

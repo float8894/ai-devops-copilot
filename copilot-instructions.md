@@ -21,12 +21,12 @@ Cost Explorer as tools to a Claude API agentic loop. Angular 21 frontend (separa
 ### 1. ESM + node: prefix — always
 
 ```typescript
-// ✅
+// 
 import { randomUUID } from 'node:crypto';
 import { readFile }   from 'node:fs/promises';
 import path           from 'node:path';
 
-// ❌ Never
+//  Never
 const fs = require('fs');
 import fs from 'fs';
 ```
@@ -45,20 +45,20 @@ log.error({ err }, 'what failed');
 ### 3. No any — ever
 
 ```typescript
-// ✅
+// 
 function process(input: unknown): string { ... }
 
-// ❌
+// 
 function process(input: any): any { ... }
 ```
 
 ### 4. Custom errors with cause — always
 
 ```typescript
-// ✅
+// 
 throw new DatabaseError('Query failed', err);
 
-// ❌
+// 
 throw new Error('Query failed');
 throw err;
 ```
@@ -66,10 +66,10 @@ throw err;
 ### 5. Parameterized SQL — always
 
 ```typescript
-// ✅
+// 
 await query('SELECT * FROM jobs WHERE status = $1', ['failed']);
 
-// ❌ SQL injection
+//  SQL injection
 await db.query(`SELECT * FROM jobs WHERE status = '${status}'`);
 ```
 
@@ -78,10 +78,10 @@ Note: INTERVAL requires a cast: `$1::interval` not just `$1`.
 ### 6. MCP SDK — registerTool, not tool()
 
 ```typescript
-// ✅
+// 
 server.registerTool('name', { title, description, inputSchema: { field: z.string() } }, handler);
 
-// ❌ Old API — removed
+//  Old API — removed
 server.tool('name', schema, handler);
 ```
 
@@ -90,23 +90,23 @@ server.tool('name', schema, handler);
 ### 7. MCP handlers never throw
 
 ```typescript
-// ✅ Return error content
+//  Return error content
 return {
   content: [{ type: 'text' as const, text: `Error: ${err.message}` }],
   isError: true,
 };
 
-// ❌ Never throw inside a tool handler
+//  Never throw inside a tool handler
 throw err;
 ```
 
 ### 8. AWS SDK v3 modular — always
 
 ```typescript
-// ✅
+// 
 import { CostExplorerClient, GetCostAndUsageCommand } from '@aws-sdk/client-cost-explorer';
 
-// ❌
+// 
 import AWS from 'aws-sdk';
 ```
 
@@ -118,11 +118,11 @@ Every env var is validated at startup in `src/config/env.ts`.
 ### 10. tsx for dev, tsc for build — never ts-node
 
 ```bash
-# ✅
+# 
 npm run dev     # uses tsx watch
 npm run build   # uses tsc
 
-# ❌
+# 
 npx ts-node src/index.ts
 ```
 
