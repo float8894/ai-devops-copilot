@@ -38,7 +38,11 @@ export async function withTransaction<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      logger.error({ err: rollbackErr }, 'ROLLBACK failed');
+    }
     throw err;
   } finally {
     client.release();
