@@ -17,6 +17,12 @@ export interface CopilotResult {
   conversationId: string;
 }
 
+export type StreamEvent =
+  | { type: 'tool_start'; tool: string }
+  | { type: 'tool_done'; tool: string }
+  | { type: 'text_delta'; delta: string }
+  | { type: 'done'; conversationId: string; toolsUsed: string[] };
+
 const SYSTEM_PROMPT = `You are an AI DevOps Copilot for infrastructure monitoring.
 You have access to three tools:
 - query_failed_jobs: queries PostgreSQL for failed background jobs
@@ -182,5 +188,177 @@ export async function runCopilotQuery(
     );
 
     messages.push({ role: 'user', content: validResults });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Streaming variant — tool turns run in batch, final answer streams via SSE
+// ---------------------------------------------------------------------------
+
+async function resolveConversation(
+  conversationId?: string,
+): Promise<{ convId: string; history: Message[] }> {
+  if (conversationId) {
+    const conversation =
+      await conversationService.getConversation(conversationId);
+    if (!conversation) {
+      log.warn({ conversationId }, 'Conversation not found, creating new one');
+      return {
+        convId: await conversationService.createConversation(),
+        history: [],
+      };
+    }
+    return {
+      convId: conversationId,
+      history: await conversationService.getHistory(conversationId),
+    };
+  }
+  return {
+    convId: await conversationService.createConversation(),
+    history: [],
+  };
+}
+
+export async function runCopilotQueryStream(
+  userMessage: string,
+  onEvent: (event: StreamEvent) => void,
+  conversationId?: string,
+): Promise<void> {
+  const { convId, history } = await resolveConversation(conversationId);
+
+  await conversationService.addMessage(convId, 'user', userMessage);
+
+  const messages: Message[] = [
+    ...history,
+    { role: 'user', content: userMessage },
+  ];
+
+  const toolsUsed: string[] = [];
+
+  // Agentic loop — tool turns are batched, final answer streams
+  while (true) {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 4096,
+      system: SYSTEM_PROMPT,
+      tools,
+      messages,
+    });
+
+    log.debug(
+      {
+        stop_reason: response.stop_reason,
+        content_blocks: response.content.length,
+        conversation_id: convId,
+      },
+      'Claude response received (stream loop)',
+    );
+
+    // Safety guard
+    if (
+      response.stop_reason !== 'tool_use' &&
+      response.stop_reason !== 'end_turn'
+    ) {
+      log.warn(
+        { stop_reason: response.stop_reason, conversation_id: convId },
+        'Unexpected stop reason — terminating stream loop',
+      );
+      const errorText =
+        'The response was cut short unexpectedly. Please try rephrasing your question.';
+      await conversationService.addMessage(convId, 'assistant', errorText);
+      onEvent({ type: 'text_delta', delta: errorText });
+      onEvent({ type: 'done', conversationId: convId, toolsUsed });
+      return;
+    }
+
+    // No more tool calls — stream the final answer
+    if (response.stop_reason === 'end_turn') {
+      const stream = client.messages.stream({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        tools,
+        messages,
+      });
+
+      let fullReply = '';
+
+      stream.on('text', (delta) => {
+        fullReply += delta;
+        onEvent({ type: 'text_delta', delta });
+      });
+
+      await stream.finalMessage();
+
+      await conversationService.addMessage(
+        convId,
+        'assistant',
+        fullReply,
+        toolsUsed.length > 0 ? toolsUsed : undefined,
+      );
+
+      log.info(
+        {
+          tools_used: toolsUsed,
+          reply_length: fullReply.length,
+          conversation_id: convId,
+        },
+        'Copilot stream complete',
+      );
+
+      onEvent({ type: 'done', conversationId: convId, toolsUsed });
+      return;
+    }
+
+    // Tool use turn — run all tools in parallel
+    messages.push({ role: 'assistant', content: response.content });
+
+    const toolCallBlocks = response.content.filter(
+      (b) => b.type === 'tool_use',
+    );
+
+    const toolResults = await Promise.all(
+      toolCallBlocks.map(
+        async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+          if (block.type !== 'tool_use') {
+            throw new Error('Unexpected block type');
+          }
+
+          onEvent({ type: 'tool_start', tool: block.name });
+          log.info(
+            { tool: block.name, input: block.input, conversation_id: convId },
+            'Executing tool (stream)',
+          );
+          toolsUsed.push(block.name);
+
+          try {
+            const result = await dispatchTool(
+              block.name,
+              block.input as Record<string, unknown>,
+            );
+            onEvent({ type: 'tool_done', tool: block.name });
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify(result),
+            };
+          } catch (err) {
+            log.error(
+              { err, tool: block.name, conversation_id: convId },
+              'Tool execution failed (stream)',
+            );
+            onEvent({ type: 'tool_done', tool: block.name });
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+              is_error: true,
+            };
+          }
+        },
+      ),
+    );
+
+    messages.push({ role: 'user', content: toolResults });
   }
 }
