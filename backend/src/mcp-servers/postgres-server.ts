@@ -2,8 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { createLogger } from '../lib/logger.js';
-import { query, db } from '../lib/database.js';
-import type { JobRow, TimeRange } from '../models/job.js';
+import { db } from '../lib/database.js';
+import { queryFailedJobs } from '../tools/query-failed-jobs.js';
 
 const log = createLogger({ service: 'mcp-postgres' });
 
@@ -11,13 +11,6 @@ const server = new McpServer({
   name: 'postgres-server',
   version: '1.0.0',
 });
-
-const intervalMap: Record<TimeRange, string> = {
-  '1h': '1 hour',
-  '24h': '24 hours',
-  '7d': '7 days',
-  '30d': '30 days',
-};
 
 server.registerTool(
   'query_failed_jobs',
@@ -47,37 +40,10 @@ server.registerTool(
     toolLog.info({ limit }, 'Tool invoked');
 
     try {
-      const rows = await query<JobRow>(
-        `SELECT id, name, status, error_message, created_at
-         FROM jobs
-         WHERE status = 'failed'
-           AND created_at > NOW() - $1::interval
-         ORDER BY created_at DESC
-         LIMIT $2`,
-        [intervalMap[time_range as TimeRange], limit],
-      );
-
-      // Group errors by message to surface patterns
-      const errorPatterns: Record<string, number> = {};
-      for (const row of rows) {
-        const key = row.error_message ?? 'Unknown error';
-        errorPatterns[key] = (errorPatterns[key] ?? 0) + 1;
-      }
-
-      toolLog.info({ count: rows.length }, 'Tool completed');
-
+      const result = await queryFailedJobs({ time_range, limit });
+      toolLog.info({ count: result.count }, 'Tool completed');
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              jobs: rows,
-              count: rows.length,
-              time_range,
-              error_patterns: errorPatterns,
-            }),
-          },
-        ],
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (err) {
       toolLog.error({ err }, 'Tool failed');

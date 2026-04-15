@@ -1,14 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import {
-  CostExplorerClient,
-  GetCostAndUsageCommand,
-  type GetCostAndUsageCommandInput,
-} from '@aws-sdk/client-cost-explorer';
 import { createLogger } from '../lib/logger.js';
-import { env } from '../config/env.js';
-import type { AwsCostEntry, CostTimeRange, CostGroupBy } from '../models/job.js';
+import { getAwsCosts } from '../tools/get-aws-costs.js';
+import type { CostTimeRange, CostGroupBy } from '../models/job.js';
 
 const log = createLogger({ service: 'mcp-aws' });
 
@@ -16,17 +11,6 @@ const server = new McpServer({
   name: 'aws-server',
   version: '1.0.0',
 });
-
-const costClient = new CostExplorerClient({ region: env.AWS_REGION });
-
-function getDateRange(timeRange: CostTimeRange): { start: string; end: string } {
-  const end = new Date();
-  const start = new Date();
-  const days: Record<CostTimeRange, number> = { '7d': 7, '30d': 30, '90d': 90 };
-  start.setDate(end.getDate() - days[timeRange]);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { start: fmt(start), end: fmt(end) };
-}
 
 server.registerTool(
   'get_aws_costs',
@@ -57,60 +41,16 @@ server.registerTool(
     toolLog.info('Tool invoked');
 
     try {
-      const { start, end } = getDateRange(time_range as CostTimeRange);
-
-      const params: GetCostAndUsageCommandInput = {
-        TimePeriod: { Start: start, End: end },
-        Granularity: 'MONTHLY',
-        Metrics: ['UnblendedCost'],
-        GroupBy: [
-          { Type: 'DIMENSION', Key: group_by as CostGroupBy | undefined },
-        ],
-      };
-
-      const response = await costClient.send(
-        new GetCostAndUsageCommand(params),
-      );
-
-      const entries: AwsCostEntry[] = [];
-
-      for (const result of response.ResultsByTime ?? []) {
-        for (const group of result.Groups ?? []) {
-          const amount = parseFloat(
-            group.Metrics?.['UnblendedCost']?.Amount ?? '0',
-          );
-          if (amount < 0.01) continue; // Filter out negligible costs
-          entries.push({
-            service: group.Keys?.[0] ?? 'Unknown',
-            amount: Math.round(amount * 100) / 100,
-            currency: group.Metrics?.['UnblendedCost']?.Unit ?? 'USD',
-            period_start: result.TimePeriod?.Start ?? start,
-            period_end: result.TimePeriod?.End ?? end,
-          });
-        }
-      }
-
-      entries.sort((a, b) => b.amount - a.amount);
-      const totalCost = entries.reduce((sum, e) => sum + e.amount, 0);
-
+      const result = await getAwsCosts({
+        time_range: time_range as CostTimeRange,
+        group_by: group_by as CostGroupBy,
+      });
       toolLog.info(
-        { total_cost: totalCost, entry_count: entries.length },
+        { total_cost: result.total_cost, entry_count: result.entries.length },
         'Tool completed',
       );
-
       return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              entries,
-              total_cost: Math.round(totalCost * 100) / 100,
-              currency: 'USD',
-              period: { start, end },
-              group_by,
-            }),
-          },
-        ],
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
       };
     } catch (err) {
       toolLog.error({ err }, 'Tool failed');
