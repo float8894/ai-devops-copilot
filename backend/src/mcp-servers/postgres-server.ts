@@ -2,8 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { createLogger } from '../lib/logger.js';
-import { query } from '../lib/database.js';
-import { db } from '../lib/database.js';
+import { query, db } from '../lib/database.js';
 import type { JobRow, TimeRange } from '../models/job.js';
 
 const log = createLogger({ service: 'mcp-postgres' });

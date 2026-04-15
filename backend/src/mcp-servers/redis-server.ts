@@ -29,6 +29,14 @@ server.registerTool(
     toolLog.info('Tool invoked');
 
     try {
+      if (
+        redis.status === 'close' ||
+        redis.status === 'end' ||
+        redis.status === 'wait'
+      ) {
+        await redis.connect();
+      }
+
       const info = await redis.info();
 
       // Parse the INFO output — each line is "key:value\r\n"
