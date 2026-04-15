@@ -11,6 +11,9 @@
     "mcp:postgres": "node --env-file=.env --import tsx/esm src/mcp-servers/postgres-server.ts",
     "mcp:redis": "node --env-file=.env --import tsx/esm src/mcp-servers/redis-server.ts",
     "mcp:aws": "node --env-file=.env --import tsx/esm src/mcp-servers/aws-server.ts",
+    "mcp:postgres:http": "node --env-file=.env --import tsx/esm src/mcp-servers/postgres-server.ts --transport=http",
+    "mcp:redis:http": "node --env-file=.env --import tsx/esm src/mcp-servers/redis-server.ts --transport=http",
+    "mcp:aws:http": "node --env-file=.env --import tsx/esm src/mcp-servers/aws-server.ts --transport=http",
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit"
