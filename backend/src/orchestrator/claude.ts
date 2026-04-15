@@ -44,7 +44,10 @@ export async function runCopilotQuery(
     // Verify conversation exists
     const conversation = await conversationService.getConversation(convId);
     if (!conversation) {
-      log.warn({ conversationId: convId }, 'Conversation not found, creating new one');
+      log.warn(
+        { conversationId: convId },
+        'Conversation not found, creating new one',
+      );
       convId = await conversationService.createConversation();
     } else {
       // Load conversation history
@@ -68,7 +71,7 @@ export async function runCopilotQuery(
   // Agentic loop — continues until Claude stops requesting tools
   while (true) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools,
@@ -88,7 +91,7 @@ export async function runCopilotQuery(
     if (response.stop_reason === 'end_turn') {
       const textBlock = response.content.find((b) => b.type === 'text');
       const reply = textBlock?.type === 'text' ? textBlock.text : '';
-      
+
       // Save assistant message
       await conversationService.addMessage(
         convId,
@@ -98,7 +101,11 @@ export async function runCopilotQuery(
       );
 
       log.info(
-        { tools_used: toolsUsed, reply_length: reply.length, conversation_id: convId },
+        {
+          tools_used: toolsUsed,
+          reply_length: reply.length,
+          conversation_id: convId,
+        },
         'Copilot query complete',
       );
       return { reply, toolsUsed, conversationId: convId };
@@ -110,10 +117,11 @@ export async function runCopilotQuery(
         { stop_reason: response.stop_reason, conversation_id: convId },
         'Unexpected stop reason — terminating loop',
       );
-      
-      const errorReply = 'The response was cut short unexpectedly. Please try rephrasing your question.';
+
+      const errorReply =
+        'The response was cut short unexpectedly. Please try rephrasing your question.';
       await conversationService.addMessage(convId, 'assistant', errorReply);
-      
+
       return {
         reply: errorReply,
         toolsUsed,
@@ -138,7 +146,10 @@ export async function runCopilotQuery(
     for (const block of toolCallBlocks) {
       if (block.type !== 'tool_use') continue;
 
-      log.info({ tool: block.name, input: block.input, conversation_id: convId }, 'Executing tool');
+      log.info(
+        { tool: block.name, input: block.input, conversation_id: convId },
+        'Executing tool',
+      );
       toolsUsed.push(block.name);
 
       try {
@@ -152,7 +163,10 @@ export async function runCopilotQuery(
           content: JSON.stringify(result),
         });
       } catch (err) {
-        log.error({ err, tool: block.name, conversation_id: convId }, 'Tool execution failed');
+        log.error(
+          { err, tool: block.name, conversation_id: convId },
+          'Tool execution failed',
+        );
         validResults.push({
           type: 'tool_result',
           tool_use_id: block.id,
