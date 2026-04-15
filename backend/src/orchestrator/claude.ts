@@ -136,45 +136,50 @@ export async function runCopilotQuery(
     };
     messages.push(assistantMessage);
 
-    // Execute all tool calls in this turn
+    // Execute all tool calls in this turn in parallel
     const toolCallBlocks = response.content.filter(
       (b) => b.type === 'tool_use',
     );
 
-    const validResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+    const validResults = await Promise.all(
+      toolCallBlocks.map(
+        async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+          if (block.type !== 'tool_use') {
+            // Unreachable — filter above guarantees tool_use only
+            throw new Error('Unexpected block type');
+          }
 
-    for (const block of toolCallBlocks) {
-      if (block.type !== 'tool_use') continue;
+          log.info(
+            { tool: block.name, input: block.input, conversation_id: convId },
+            'Executing tool',
+          );
+          toolsUsed.push(block.name);
 
-      log.info(
-        { tool: block.name, input: block.input, conversation_id: convId },
-        'Executing tool',
-      );
-      toolsUsed.push(block.name);
-
-      try {
-        const result = await dispatchTool(
-          block.name,
-          block.input as Record<string, unknown>,
-        );
-        validResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
-      } catch (err) {
-        log.error(
-          { err, tool: block.name, conversation_id: convId },
-          'Tool execution failed',
-        );
-        validResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-          is_error: true,
-        });
-      }
-    }
+          try {
+            const result = await dispatchTool(
+              block.name,
+              block.input as Record<string, unknown>,
+            );
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: JSON.stringify(result),
+            };
+          } catch (err) {
+            log.error(
+              { err, tool: block.name, conversation_id: convId },
+              'Tool execution failed',
+            );
+            return {
+              type: 'tool_result',
+              tool_use_id: block.id,
+              content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+              is_error: true,
+            };
+          }
+        },
+      ),
+    );
 
     messages.push({ role: 'user', content: validResults });
   }
