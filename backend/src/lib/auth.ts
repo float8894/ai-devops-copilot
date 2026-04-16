@@ -21,7 +21,9 @@ const refreshSecret = new TextEncoder().encode(env.JWT_REFRESH_SECRET);
 // JWT
 // ---------------------------------------------------------------------------
 
-export async function signAccessToken(payload: Omit<TokenPayload, 'iat' | 'exp'>): Promise<string> {
+export async function signAccessToken(
+  payload: Omit<TokenPayload, 'iat' | 'exp'>,
+): Promise<string> {
   return new SignJWT({ email: payload.email, role: payload.role })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(String(payload.sub))
@@ -81,7 +83,10 @@ export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, BCRYPT_COST);
 }
 
-export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
+export async function verifyPassword(
+  plain: string,
+  hash: string,
+): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
 

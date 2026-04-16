@@ -1,4 +1,9 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import { z } from 'zod';
 import { createLogger } from '../../lib/logger.js';
 import { ValidationError, NotFoundError } from '../../errors/index.js';

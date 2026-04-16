@@ -8,7 +8,10 @@ import { z } from 'zod';
 import { ValidationError } from '../../errors/index.js';
 import { runCopilotQuery, runCopilotQueryStream } from '../claude.js';
 import { createLogger } from '../../lib/logger.js';
-import { getDefaultAccount, getAccountById } from '../../services/aws-account.service.js';
+import {
+  getDefaultAccount,
+  getAccountById,
+} from '../../services/aws-account.service.js';
 import { assumeRole } from '../../lib/sts.js';
 import type { AssumedCredentials } from '../../lib/sts.js';
 
@@ -75,7 +78,11 @@ chatRouter.post(
       );
 
       const awsCredentials = await resolveAwsCredentials(userId, awsAccountId);
-      const result = await runCopilotQuery(message, conversationId, awsCredentials);
+      const result = await runCopilotQuery(
+        message,
+        conversationId,
+        awsCredentials,
+      );
 
       log.info(
         {

@@ -125,10 +125,10 @@ export async function deleteAccount(
   const account = await getAccountById(userId, accountId);
   if (!account) throw new NotFoundError('AWS account not found');
 
-  await query(
-    `DELETE FROM aws_accounts WHERE id = $1 AND user_id = $2`,
-    [accountId, userId],
-  );
+  await query(`DELETE FROM aws_accounts WHERE id = $1 AND user_id = $2`, [
+    accountId,
+    userId,
+  ]);
 
   // Invalidate any cached STS credentials for this account
   await invalidateStsCache(userId, accountId);

@@ -1,8 +1,17 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import { z } from 'zod';
 import { redis } from '../../lib/redis.js';
 import { createLogger } from '../../lib/logger.js';
-import { ValidationError, AuthError, DatabaseError } from '../../errors/index.js';
+import {
+  ValidationError,
+  AuthError,
+  DatabaseError,
+} from '../../errors/index.js';
 import {
   signAccessToken,
   signRefreshToken,

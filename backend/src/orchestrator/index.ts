@@ -6,7 +6,11 @@ import { randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createLogger } from '../lib/logger.js';
 import { errorHandler } from './middleware/error-handler.js';
-import { generalRateLimiter, chatRateLimiter, authRateLimiter } from './middleware/rate-limit.js';
+import {
+  generalRateLimiter,
+  chatRateLimiter,
+  authRateLimiter,
+} from './middleware/rate-limit.js';
 import { authenticate } from './middleware/authenticate.js';
 import { chatRouter } from './routes/chat.js';
 import { authRouter } from './routes/auth.js';
@@ -46,13 +50,17 @@ export function createApp(): Application {
   app.use(cookieParser());
 
   // Request size limits
-  app.use(express.json({ 
-    limit: '10kb', // Smaller limit for JSON bodies (was 1mb)
-  }));
-  app.use(express.urlencoded({ 
-    extended: true, 
-    limit: '10kb',
-  }));
+  app.use(
+    express.json({
+      limit: '10kb', // Smaller limit for JSON bodies (was 1mb)
+    }),
+  );
+  app.use(
+    express.urlencoded({
+      extended: true,
+      limit: '10kb',
+    }),
+  );
 
   // Global rate limiter — applies to all routes except /health
   app.use(generalRateLimiter);
