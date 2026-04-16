@@ -8,6 +8,9 @@ import { z } from 'zod';
 import { ValidationError } from '../../errors/index.js';
 import { runCopilotQuery, runCopilotQueryStream } from '../claude.js';
 import { createLogger } from '../../lib/logger.js';
+import { getDefaultAccount, getAccountById } from '../../services/aws-account.service.js';
+import { assumeRole } from '../../lib/sts.js';
+import type { AssumedCredentials } from '../../lib/sts.js';
 
 export const chatRouter = Router();
 
@@ -19,6 +22,7 @@ const ChatRequestSchema = z.object({
     .min(1, 'Message cannot be empty')
     .max(2000, 'Message too long'),
   conversationId: z.string().uuid().optional(),
+  awsAccountId: z.string().uuid().optional(),
 });
 
 type ChatRequestBody = z.infer<typeof ChatRequestSchema>;
@@ -36,6 +40,19 @@ interface ErrorResponseBody {
   };
 }
 
+async function resolveAwsCredentials(
+  userId: string,
+  accountId?: string,
+): Promise<AssumedCredentials | undefined> {
+  const account = accountId
+    ? await getAccountById(userId, accountId)
+    : await getDefaultAccount(userId);
+
+  if (!account) return undefined;
+
+  return assumeRole(account.roleArn, userId, account.id);
+}
+
 chatRouter.post(
   '/',
   async (
@@ -49,14 +66,16 @@ chatRouter.post(
         throw new ValidationError('Invalid request body', parsed.error);
       }
 
-      const { message, conversationId } = parsed.data;
+      const { message, conversationId, awsAccountId } = parsed.data;
+      const userId = req.user!.sub;
 
       log.info(
         { message_length: message.length, conversationId },
         'Chat request received',
       );
 
-      const result = await runCopilotQuery(message, conversationId);
+      const awsCredentials = await resolveAwsCredentials(userId, awsAccountId);
+      const result = await runCopilotQuery(message, conversationId, awsCredentials);
 
       log.info(
         {
@@ -91,12 +110,15 @@ chatRouter.post(
         throw new ValidationError('Invalid request body', parsed.error);
       }
 
-      const { message, conversationId } = parsed.data;
+      const { message, conversationId, awsAccountId } = parsed.data;
+      const userId = req.user!.sub;
 
       log.info(
         { message_length: message.length, conversationId },
         'Stream request received',
       );
+
+      const awsCredentials = await resolveAwsCredentials(userId, awsAccountId);
 
       // SSE headers
       res.setHeader('Content-Type', 'text/event-stream');
@@ -116,6 +138,7 @@ chatRouter.post(
           res.write(`data: ${JSON.stringify(event)}\n\n`);
         },
         conversationId,
+        awsCredentials,
       );
 
       if (!closed) {

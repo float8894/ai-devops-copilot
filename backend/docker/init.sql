@@ -34,6 +34,38 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
   ON messages (conversation_id, created_at ASC);
 
+-- Users table for authentication
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         VARCHAR(255) NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role          VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  last_login_at TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+
+-- AWS accounts table — stores IAM Role ARNs per user (no long-lived credentials)
+CREATE TABLE IF NOT EXISTS aws_accounts (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name        VARCHAR(255) NOT NULL,
+  role_arn    TEXT NOT NULL,
+  is_default  BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, name)
+);
+
+-- Only one default account per user
+CREATE UNIQUE INDEX IF NOT EXISTS idx_aws_accounts_default
+  ON aws_accounts (user_id) WHERE is_default = true;
+
+CREATE INDEX IF NOT EXISTS idx_aws_accounts_user
+  ON aws_accounts (user_id);
+
 -- Seed some realistic failed jobs for dev/testing
 INSERT INTO jobs (name, status, error_message, created_at) VALUES
   ('send-invoice-emails',  'failed', 'SMTP connection refused: connect ECONNREFUSED 10.0.0.5:587', NOW() - INTERVAL '2 hours'),

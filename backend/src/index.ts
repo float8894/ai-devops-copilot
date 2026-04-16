@@ -6,6 +6,9 @@ import { redis } from './lib/redis.js';
 
 const log = createLogger({ service: 'main' });
 
+// Connect Redis eagerly before accepting requests
+await redis.connect();
+
 const app = createApp();
 const server = app.listen(env.PORT, () => {
   log.info({ port: env.PORT, env: env.NODE_ENV }, 'Server started');

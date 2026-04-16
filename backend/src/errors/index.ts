@@ -38,3 +38,15 @@ export class NotFoundError extends AppError {
     super(message, 'NOT_FOUND', 404);
   }
 }
+
+export class AuthError extends AppError {
+  constructor(message: string = 'Unauthorized') {
+    super(message, 'UNAUTHORIZED', 401);
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message: string = 'Forbidden') {
+    super(message, 'FORBIDDEN', 403);
+  }
+}

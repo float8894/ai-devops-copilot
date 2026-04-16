@@ -4,6 +4,7 @@ import { createLogger } from '../lib/logger.js';
 import { tools } from './tools.js';
 import { dispatchTool } from './tool-dispatcher.js';
 import { conversationService } from '../services/conversation.service.js';
+import type { AssumedCredentials } from '../lib/sts.js';
 
 const log = createLogger({ service: 'claude-orchestrator' });
 
@@ -41,6 +42,7 @@ When answering questions:
 export async function runCopilotQuery(
   userMessage: string,
   conversationId?: string,
+  awsCredentials?: AssumedCredentials,
 ): Promise<CopilotResult> {
   // Create new conversation or load existing history
   let convId = conversationId;
@@ -165,6 +167,7 @@ export async function runCopilotQuery(
             const result = await dispatchTool(
               block.name,
               block.input as Record<string, unknown>,
+              awsCredentials,
             );
             return {
               type: 'tool_result',
@@ -223,6 +226,7 @@ export async function runCopilotQueryStream(
   userMessage: string,
   onEvent: (event: StreamEvent) => void,
   conversationId?: string,
+  awsCredentials?: AssumedCredentials,
 ): Promise<void> {
   const { convId, history } = await resolveConversation(conversationId);
 
@@ -335,6 +339,7 @@ export async function runCopilotQueryStream(
             const result = await dispatchTool(
               block.name,
               block.input as Record<string, unknown>,
+              awsCredentials,
             );
             onEvent({ type: 'tool_done', tool: block.name });
             return {

@@ -33,3 +33,21 @@ export const generalRateLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => req.path === '/health',
 });
+
+/**
+ * Auth route rate limiter — strict to prevent brute-force attacks
+ * Production: 5 requests per 15 minutes per IP
+ * Development: 50 requests per 15 minutes per IP
+ */
+export const authRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: env.NODE_ENV === 'production' ? 5 : 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: 'Too many attempts. Please try again later.',
+    },
+  },
+});
