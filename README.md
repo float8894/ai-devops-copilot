@@ -1,5 +1,9 @@
 # AI DevOps Copilot
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-24-green.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-blue.svg)](https://typescriptlang.org)
+
 A conversational AI infrastructure monitoring tool. Ask plain-English questions like _"why did costs spike on Tuesday?"_ or _"are there any failed jobs in the last 24 hours?"_ and get a single intelligent answer drawn from PostgreSQL, Redis, and AWS Cost Explorer.
 
 Built to demonstrate **production-grade agentic AI engineering** — Claude reasons across multiple live data sources using an agentic tool loop, decides which tools to call (and in what order), and synthesizes all results into one coherent response.
@@ -480,14 +484,22 @@ npm run dev
 
 ## License
 
-MIT
+MIT © [Abhishek Panchal](https://github.com/abhishekpanchal). See [LICENSE](./LICENSE) for full text.
 
 ---
 
 ## Contributing
 
-This is a portfolio project, but suggestions and bug reports are welcome. Open an issue or PR.
+Contributions, bug reports, and feature requests are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR.
 
 ---
 
-**Built with ❤️ using Node.js 24, TypeScript, Claude API, and the Model Context Protocol.**
+## Documentation
+
+- [Technical Documentation & Flow Diagrams](./docs/README.md)
+- [OpenAPI / Swagger Spec](./docs/openapi.yaml)
+- [Security Architecture](./docs/SECURITY.md)
+
+---
+
+**Built with ❤️ by [Abhishek Panchal](https://github.com/abhishekpanchal) using Node.js 24, TypeScript, Claude API, and the Model Context Protocol.**
