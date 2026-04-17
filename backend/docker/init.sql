@@ -1,3 +1,16 @@
+-- Users table for authentication (defined first — conversations and aws_accounts reference it)
+CREATE TABLE IF NOT EXISTS users (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email         VARCHAR(255) NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role          VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  last_login_at TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
+
 -- Jobs table for background job tracking
 CREATE TABLE IF NOT EXISTS jobs (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,12 +27,14 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status_created
 -- Conversations table for chat history persistence
 CREATE TABLE IF NOT EXISTS conversations (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_conversations_updated
-  ON conversations (updated_at DESC);
+-- Composite index: supports WHERE user_id = $1 ORDER BY updated_at DESC
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id
+  ON conversations (user_id, updated_at DESC);
 
 -- Messages table for individual chat messages
 CREATE TABLE IF NOT EXISTS messages (
@@ -33,19 +48,6 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation
   ON messages (conversation_id, created_at ASC);
-
--- Users table for authentication
-CREATE TABLE IF NOT EXISTS users (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  email         VARCHAR(255) NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role          VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-  last_login_at TIMESTAMPTZ,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_users_email ON users (email);
 
 -- AWS accounts table — stores IAM Role ARNs per user (no long-lived credentials)
 CREATE TABLE IF NOT EXISTS aws_accounts (

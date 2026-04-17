@@ -322,8 +322,10 @@ components:
           type: string
           format: uuid
           description: |
-            Omit to start a new conversation. Include to continue a previous one —
-            Claude will have access to the full message history.
+            Omit to start a new conversation. Include to continue a previous one
+            (must be owned by the authenticated user — foreign or unrecognized IDs
+            silently create a new conversation). Claude will have access to the full
+            message history.
           example: 7a52d211-d4a5-4be4-97f5-c231cfe81aae
         awsAccountId:
           type: string
@@ -857,7 +859,7 @@ paths:
 
         1. Verifies the Bearer JWT
         2. Resolves the user's AWS credentials via STS AssumeRole (cached in Redis)
-        3. Loads conversation history from PostgreSQL (if `conversationId` provided)
+        3. Loads conversation history from PostgreSQL (if `conversationId` provided **and owned by this user** — foreign or unrecognized IDs silently start a new conversation)
         4. Runs the **agentic tool loop**:
            - Claude decides which tools to call (`query_failed_jobs`, `get_redis_stats`, `get_aws_costs`)
            - All tools in a single turn are executed **in parallel** via `Promise.all`

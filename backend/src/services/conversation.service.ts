@@ -7,24 +7,24 @@ type Message = Anthropic.MessageParam;
 
 export class ConversationService {
   /**
-   * Create a new conversation
+   * Create a new conversation owned by the given user
    */
-  async createConversation(): Promise<string> {
+  async createConversation(userId: string): Promise<string> {
     const id = randomUUID();
     await query(
-      'INSERT INTO conversations (id, created_at, updated_at) VALUES ($1, NOW(), NOW())',
-      [id],
+      'INSERT INTO conversations (id, user_id, created_at, updated_at) VALUES ($1, $2, NOW(), NOW())',
+      [id, userId],
     );
     return id;
   }
 
   /**
-   * Get conversation by ID
+   * Get conversation by ID — returns null if not found or not owned by userId
    */
-  async getConversation(id: string): Promise<ConversationRow | null> {
+  async getConversation(id: string, userId: string): Promise<ConversationRow | null> {
     const rows = await query<ConversationRow>(
-      'SELECT id, created_at, updated_at FROM conversations WHERE id = $1',
-      [id],
+      'SELECT id, user_id, created_at, updated_at FROM conversations WHERE id = $1 AND user_id = $2',
+      [id, userId],
     );
     return rows[0] ?? null;
   }
@@ -68,23 +68,24 @@ export class ConversationService {
   }
 
   /**
-   * Get recent conversations (for listing)
+   * Get recent conversations for a specific user
    */
-  async listRecentConversations(limit = 20): Promise<ConversationRow[]> {
+  async listRecentConversations(userId: string, limit = 20): Promise<ConversationRow[]> {
     return query<ConversationRow>(
-      `SELECT id, created_at, updated_at
+      `SELECT id, user_id, created_at, updated_at
        FROM conversations
+       WHERE user_id = $1
        ORDER BY updated_at DESC
-       LIMIT $1`,
-      [limit],
+       LIMIT $2`,
+      [userId, limit],
     );
   }
 
   /**
-   * Delete a conversation and all its messages (cascade)
+   * Delete a conversation — silently no-ops if not owned by userId
    */
-  async deleteConversation(id: string): Promise<void> {
-    await query('DELETE FROM conversations WHERE id = $1', [id]);
+  async deleteConversation(id: string, userId: string): Promise<void> {
+    await query('DELETE FROM conversations WHERE id = $1 AND user_id = $2', [id, userId]);
   }
 }
 

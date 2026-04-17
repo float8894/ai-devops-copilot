@@ -80,6 +80,7 @@ chatRouter.post(
       const awsCredentials = await resolveAwsCredentials(userId, awsAccountId);
       const result = await runCopilotQuery(
         message,
+        userId,
         conversationId,
         awsCredentials,
       );
@@ -140,6 +141,7 @@ chatRouter.post(
 
       await runCopilotQueryStream(
         message,
+        userId,
         (event) => {
           if (closed) return;
           res.write(`data: ${JSON.stringify(event)}\n\n`);

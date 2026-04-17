@@ -41,6 +41,7 @@ When answering questions:
 
 export async function runCopilotQuery(
   userMessage: string,
+  userId: string,
   conversationId?: string,
   awsCredentials?: AssumedCredentials,
 ): Promise<CopilotResult> {
@@ -49,21 +50,24 @@ export async function runCopilotQuery(
   let history: Message[] = [];
 
   if (convId) {
-    // Verify conversation exists
-    const conversation = await conversationService.getConversation(convId);
+    // Verify conversation exists and is owned by this user
+    const conversation = await conversationService.getConversation(
+      convId,
+      userId,
+    );
     if (!conversation) {
       log.warn(
         { conversationId: convId },
-        'Conversation not found, creating new one',
+        'Conversation not found or not owned by user, creating new one',
       );
-      convId = await conversationService.createConversation();
+      convId = await conversationService.createConversation(userId);
     } else {
       // Load conversation history
       history = await conversationService.getHistory(convId);
     }
   } else {
     // Create new conversation
-    convId = await conversationService.createConversation();
+    convId = await conversationService.createConversation(userId);
   }
 
   // Save user message
@@ -199,15 +203,21 @@ export async function runCopilotQuery(
 // ---------------------------------------------------------------------------
 
 async function resolveConversation(
-  conversationId?: string,
+  conversationId: string | undefined,
+  userId: string,
 ): Promise<{ convId: string; history: Message[] }> {
   if (conversationId) {
-    const conversation =
-      await conversationService.getConversation(conversationId);
+    const conversation = await conversationService.getConversation(
+      conversationId,
+      userId,
+    );
     if (!conversation) {
-      log.warn({ conversationId }, 'Conversation not found, creating new one');
+      log.warn(
+        { conversationId },
+        'Conversation not found or not owned by user, creating new one',
+      );
       return {
-        convId: await conversationService.createConversation(),
+        convId: await conversationService.createConversation(userId),
         history: [],
       };
     }
@@ -217,18 +227,19 @@ async function resolveConversation(
     };
   }
   return {
-    convId: await conversationService.createConversation(),
+    convId: await conversationService.createConversation(userId),
     history: [],
   };
 }
 
 export async function runCopilotQueryStream(
   userMessage: string,
+  userId: string,
   onEvent: (event: StreamEvent) => void,
   conversationId?: string,
   awsCredentials?: AssumedCredentials,
 ): Promise<void> {
-  const { convId, history } = await resolveConversation(conversationId);
+  const { convId, history } = await resolveConversation(conversationId, userId);
 
   await conversationService.addMessage(convId, 'user', userMessage);
 
