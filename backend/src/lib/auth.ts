@@ -6,7 +6,10 @@ import { AuthError } from '../errors/index.js';
 
 const BCRYPT_COST = 12;
 const ACCESS_TOKEN_TTL = '15m';
-const REFRESH_TOKEN_TTL = '7d';
+// Single source of truth — derive the JWT string from the seconds constant
+export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60; // 604 800
+const REFRESH_TOKEN_TTL =
+  `${REFRESH_TOKEN_TTL_SECONDS / (24 * 60 * 60)}d` as const;
 
 export interface TokenPayload extends JWTPayload {
   sub: string; // userId
@@ -89,9 +92,3 @@ export async function verifyPassword(
 ): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
-
-// ---------------------------------------------------------------------------
-// Refresh token TTL in seconds (7 days)
-// ---------------------------------------------------------------------------
-
-export const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;

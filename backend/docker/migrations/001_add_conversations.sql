@@ -1,4 +1,9 @@
 -- Add conversations and messages tables for history persistence
+--
+-- NOTE: This migration reflects conversations without user ownership (original schema).
+-- Always run migration 002 immediately after to add the user_id FK.
+-- On a fresh database, init.sql already applies both — these migrations
+-- are only needed to upgrade existing databases.
 
 CREATE TABLE IF NOT EXISTS conversations (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

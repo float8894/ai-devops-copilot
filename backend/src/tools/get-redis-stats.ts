@@ -1,14 +1,22 @@
 import { redis } from '../lib/redis.js';
+import { createLogger } from '../lib/logger.js';
 import type { RedisStats } from '../models/job.js';
 
+const log = createLogger({ service: 'tool-get-redis-stats' });
+
 export async function getRedisStats(): Promise<RedisStats> {
+  if (redis.status === 'wait') {
+    log.debug(
+      { redisStatus: redis.status },
+      'Redis reconnect already in progress, skipping explicit connect',
+    );
+  }
+
   // Ensure connected — with lazyConnect + enableOfflineQueue:false we must
-  // explicitly reconnect if the stream was closed (e.g. after a watch reload)
-  if (
-    redis.status === 'close' ||
-    redis.status === 'end' ||
-    redis.status === 'wait'
-  ) {
+  // explicitly reconnect if the connection was fully closed. 'wait' means
+  // ioredis backoff is already in progress — do NOT call connect() again or
+  // it triggers a redundant reconnect attempt on top of the pending one.
+  if (redis.status === 'close' || redis.status === 'end') {
     await redis.connect();
   }
 

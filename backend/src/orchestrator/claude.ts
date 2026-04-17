@@ -83,7 +83,7 @@ export async function runCopilotQuery(
   // Agentic loop — continues until Claude stops requesting tools
   while (true) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools,
@@ -253,7 +253,7 @@ export async function runCopilotQueryStream(
   // Agentic loop — tool turns are batched, final answer streams
   while (true) {
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-haiku-4-5',
       max_tokens: 4096,
       system: SYSTEM_PROMPT,
       tools,
@@ -289,7 +289,7 @@ export async function runCopilotQueryStream(
     // No more tool calls — stream the final answer
     if (response.stop_reason === 'end_turn') {
       const stream = client.messages.stream({
-        model: 'claude-sonnet-4-5-20250929',
+        model: 'claude-haiku-4-5',
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
         tools,
