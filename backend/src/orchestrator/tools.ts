@@ -2,26 +2,40 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 export const tools: Anthropic.Tool[] = [
   {
-    name: 'query_failed_jobs',
+    name: 'get_db_schema',
     description:
-      'Query PostgreSQL for failed background jobs within a time range. ' +
-      'Returns job id, name, error message, timestamp, and error patterns grouped by message. ' +
-      'Use this when the user asks about: job failures, task errors, failed processes, ' +
-      'background job status, what went wrong, error patterns, which jobs failed, job queue issues.',
+      'Query PostgreSQL information_schema to return all tables and columns ' +
+      '(name, data type, nullable, primary key, foreign key relationships). ' +
+      'Call this FIRST before writing any SQL query so you know what tables and ' +
+      'columns exist. Use this when the user asks about: database structure, ' +
+      'what tables exist, what data is available, schema information.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'run_sql_query',
+    description:
+      'Execute a read-only SELECT query against PostgreSQL and return the results. ' +
+      'Always call get_db_schema first to know the table structure. ' +
+      'Only SELECT and WITH (CTE) queries are allowed — write operations are rejected. ' +
+      'Use this when the user asks about: any data from the database, ' +
+      'job failures, user records, errors, counts, statistics, anything stored in Postgres.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        time_range: {
+        sql: {
           type: 'string',
-          enum: ['1h', '24h', '7d', '30d'],
-          description: 'How far back to look for failures',
+          description: 'A valid read-only SQL SELECT or WITH (CTE) query',
         },
         limit: {
           type: 'number',
-          description: 'Maximum results to return (default 20, max 100)',
+          description: 'Maximum rows to return (default 50, max 200)',
         },
       },
-      required: ['time_range'],
+      required: ['sql'],
     },
   },
   {

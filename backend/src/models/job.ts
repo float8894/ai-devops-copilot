@@ -14,16 +14,6 @@ export interface MessageRow {
   created_at: Date;
 }
 
-export interface JobRow {
-  id: string;
-  name: string;
-  status: 'pending' | 'running' | 'failed' | 'completed';
-  error_message: string | null;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export type TimeRange = '1h' | '24h' | '7d' | '30d';
 export type CostTimeRange = '7d' | '30d' | '90d';
 export type CostGroupBy = 'SERVICE' | 'REGION' | 'USAGE_TYPE';
 

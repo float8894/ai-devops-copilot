@@ -1,8 +1,9 @@
 import { McpToolError } from '../errors/index.js';
 import { createLogger } from '../lib/logger.js';
-import type { TimeRange, CostTimeRange, CostGroupBy } from '../models/job.js';
+import type { CostTimeRange, CostGroupBy } from '../models/job.js';
 import type { AssumedCredentials } from '../lib/sts.js';
-import { queryFailedJobs } from '../tools/query-failed-jobs.js';
+import { getDbSchema } from '../tools/get-db-schema.js';
+import { runSqlQuery } from '../tools/run-sql-query.js';
 import { getRedisStats } from '../tools/get-redis-stats.js';
 import { getAwsCosts } from '../tools/get-aws-costs.js';
 
@@ -18,9 +19,11 @@ export async function dispatchTool(
   log.info({ tool: name }, 'Dispatching tool');
 
   switch (name) {
-    case 'query_failed_jobs':
-      return queryFailedJobs({
-        time_range: input['time_range'] as TimeRange | undefined,
+    case 'get_db_schema':
+      return getDbSchema();
+    case 'run_sql_query':
+      return runSqlQuery({
+        sql: input['sql'] as string,
         limit: typeof input['limit'] === 'number' ? input['limit'] : undefined,
       });
     case 'get_redis_stats':
