@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Report a bug or unexpected behavior
-title: "[BUG] "
+title: '[BUG] '
 labels: bug
 assignees: ''
 ---
@@ -26,12 +26,12 @@ What actually happened. Include any error messages, stack traces, or log output.
 
 ## Environment
 
-| Field | Value |
-|-------|-------|
-| OS | e.g. macOS 14, Ubuntu 22.04 |
-| Node.js | e.g. 24.0.0 |
-| npm | e.g. 10.x |
-| Branch | e.g. master |
+| Field   | Value                       |
+| ------- | --------------------------- |
+| OS      | e.g. macOS 14, Ubuntu 22.04 |
+| Node.js | e.g. 24.0.0                 |
+| npm     | e.g. 10.x                   |
+| Branch  | e.g. master                 |
 
 ## Logs
 

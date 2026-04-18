@@ -62,15 +62,15 @@ See [backend/SETUP.md](./backend/SETUP.md) for detailed setup instructions.
 
 The stack is intentional — please do not introduce:
 
-| Prohibited | Use instead |
-|-----------|------------|
-| `ts-node` | `tsx` |
-| `dotenv` package | `node --env-file` |
-| `console.log` in `src/` | `pino` logger |
-| `any` TypeScript type | `unknown` |
-| AWS SDK v2 | `@aws-sdk/*` v3 modular |
-| `redis` package | `ioredis` |
-| NestJS | Express |
+| Prohibited              | Use instead             |
+| ----------------------- | ----------------------- |
+| `ts-node`               | `tsx`                   |
+| `dotenv` package        | `node --env-file`       |
+| `console.log` in `src/` | `pino` logger           |
+| `any` TypeScript type   | `unknown`               |
+| AWS SDK v2              | `@aws-sdk/*` v3 modular |
+| `redis` package         | `ioredis`               |
+| NestJS                  | Express                 |
 
 ---
 
@@ -100,6 +100,7 @@ Optional longer body explaining the why.
 Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
 
 Examples:
+
 ```
 feat(auth): add JWT refresh token rotation
 fix(sts): prevent using near-expired cached credentials

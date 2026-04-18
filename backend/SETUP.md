@@ -72,12 +72,14 @@ Replace the generated `package.json` entirely with:
 ### Step 3 — Install dependencies
 
 **Production:**
+
 ```bash
 npm install express @anthropic-ai/sdk @modelcontextprotocol/sdk@^1 \
   pg ioredis @aws-sdk/client-cost-explorer zod pino pino-pretty helmet cors
 ```
 
 **Development:**
+
 ```bash
 npm install -D typescript tsx vitest \
   @types/node @types/express @types/pg @types/cors
@@ -109,6 +111,7 @@ npm install -D typescript tsx vitest \
 ### Step 5 — Environment configuration
 
 **Create `.env.example` (commit this):**
+
 ```env
 NODE_ENV=development
 PORT=3000
@@ -122,6 +125,7 @@ ALLOWED_ORIGIN=http://localhost:4200
 ```
 
 **Create `.env` (NEVER commit):**
+
 ```bash
 cp .env.example .env
 # Edit with real values
@@ -160,6 +164,7 @@ Thumbs.db
 ### Step 7 — Docker infrastructure
 
 **Create `docker-compose.yml`:**
+
 ```yaml
 services:
   postgres:
@@ -196,6 +201,7 @@ volumes:
 ```
 
 **Create `docker/init.sql`:**
+
 ```sql
 CREATE TABLE IF NOT EXISTS jobs (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -229,6 +235,7 @@ docker compose ps
 ```
 
 Expected output:
+
 ```
 NAME               STATUS
 copilot_postgres   Up (healthy)
@@ -288,12 +295,14 @@ Server should start on http://localhost:3000
 ## Verify Everything Works
 
 ### 1. Health check
+
 ```bash
 curl http://localhost:3000/health
 # Should return: {"status":"ok","timestamp":"..."}
 ```
 
 ### 2. Test the chat endpoint
+
 ```bash
 curl -X POST http://localhost:3000/api/chat \
   -H "Content-Type: application/json" \
@@ -301,10 +310,12 @@ curl -X POST http://localhost:3000/api/chat \
 ```
 
 Expected response includes:
+
 - `reply`: Natural language answer from Claude
 - `toolsUsed`: Array of tool names called (e.g. `["query_failed_jobs"]`)
 
 ### 3. Run MCP servers individually
+
 ```bash
 # Each server runs as a standalone process
 npm run mcp:postgres  # Listens on stdio for query_failed_jobs calls
@@ -361,22 +372,26 @@ backend/
 ## Troubleshooting
 
 **PostgreSQL connection refused:**
+
 ```bash
 docker compose ps
 docker compose logs postgres
 ```
 
 **Redis connection error:**
+
 ```bash
 docker compose restart redis
 ```
 
 **TypeScript errors:**
+
 ```bash
 npm run typecheck
 ```
 
 **Tests failing:**
+
 ```bash
 # Ensure Docker is running
 docker compose ps
@@ -386,12 +401,38 @@ npm run test:run
 ```
 
 **Claude API errors:**
+
 - Verify `ANTHROPIC_API_KEY` in `.env`
 - Check API key at https://console.anthropic.com
 
 **AWS Cost Explorer errors:**
+
 - Ensure IAM user has `ce:GetCostAndUsage` permission
 - Verify `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
+
+---
+
+## GitHub Actions — Required Secrets
+
+The CI workflow reads these secrets from the repository. You must add them once in the GitHub UI before CI runs will succeed.
+
+**Navigate to:** `GitHub repo → Settings → Secrets and variables → Actions → New repository secret`
+
+| Secret name            | Value         | Notes                                            |
+| ---------------------- | ------------- | ------------------------------------------------ |
+| `CI_POSTGRES_PASSWORD` | `copilot_dev` | Password for the ephemeral CI Postgres container |
+
+### Step-by-step
+
+1. Go to your repository on GitHub.
+2. Click **Settings** (top navigation bar).
+3. In the left sidebar, click **Secrets and variables → Actions**.
+4. Click **New repository secret**.
+5. Set **Name** to `CI_POSTGRES_PASSWORD`.
+6. Set **Value** to `copilot_dev` (or any password you prefer — just make sure it matches what the Postgres service container is configured with).
+7. Click **Add secret**.
+
+CI will now use `${{ secrets.CI_POSTGRES_PASSWORD }}` instead of the hardcoded value, and SonarQube rule S6698 will no longer fire.
 
 ---
 
@@ -399,9 +440,10 @@ npm run test:run
 
 1.  Backend complete
 2.  Build Angular 21 frontend (see `/frontend` directory)
-3. Deploy to production (AWS ECS, Render, or Railway)
+3.  Deploy to production (AWS ECS, Render, or Railway)
 
 For development workflow, always run:
+
 ```bash
 docker compose up -d  # Start infra
 npm run dev           # Watch mode with hot reload
