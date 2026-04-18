@@ -24,7 +24,7 @@ describe('ConversationService', () => {
     it('inserts and returns a UUID string', async () => {
       mockQuery.mockResolvedValue([]);
 
-      const id = await conversationService.createConversation('user-1');
+      const id = await conversationService.createConversation();
 
       expect(mockQuery).toHaveBeenCalledOnce();
       expect(typeof id).toBe('string');
@@ -33,26 +33,16 @@ describe('ConversationService', () => {
       );
     });
 
-    it('passes the userId to the INSERT query', async () => {
-      mockQuery.mockResolvedValue([]);
-
-      await conversationService.createConversation('owner-id');
-
-      const callArgs = mockQuery.mock.calls[0];
-      const params = callArgs?.[1] as unknown[];
-      expect(params?.[1]).toBe('owner-id');
-    });
-
     it('wraps DB error in DatabaseError("Failed to create conversation")', async () => {
       mockQuery.mockRejectedValue(new Error('DB gone'));
 
       await expect(
-        conversationService.createConversation('u'),
+        conversationService.createConversation(),
       ).rejects.toMatchObject({
         message: 'Failed to create conversation',
       });
       await expect(
-        conversationService.createConversation('u'),
+        conversationService.createConversation(),
       ).rejects.toBeInstanceOf(DatabaseError);
     });
   });
@@ -66,38 +56,33 @@ describe('ConversationService', () => {
       const row = makeTestConversation();
       mockQuery.mockResolvedValue([row]);
 
-      const result = await conversationService.getConversation(
-        'test-conv-id-456',
-        'test-user-id-123',
-      );
+      const result =
+        await conversationService.getConversation('test-conv-id-456');
 
       expect(result).toEqual(row);
     });
 
-    it('returns null when not found (ownership check or missing)', async () => {
+    it('returns null when not found', async () => {
       mockQuery.mockResolvedValue([]);
 
-      expect(
-        await conversationService.getConversation('missing', 'user-1'),
-      ).toBeNull();
+      expect(await conversationService.getConversation('missing')).toBeNull();
     });
 
-    it('passes both id and userId to enforce ownership', async () => {
+    it('passes id to the query', async () => {
       mockQuery.mockResolvedValue([]);
 
-      await conversationService.getConversation('conv-id', 'owner-id');
+      await conversationService.getConversation('conv-id');
 
       const callArgs = mockQuery.mock.calls[0];
       const params = callArgs?.[1] as unknown[];
       expect(params).toContain('conv-id');
-      expect(params).toContain('owner-id');
     });
 
     it('wraps DB error in DatabaseError', async () => {
       mockQuery.mockRejectedValue(new Error('timeout'));
 
       await expect(
-        conversationService.getConversation('c', 'u'),
+        conversationService.getConversation('c'),
       ).rejects.toBeInstanceOf(DatabaseError);
     });
   });
@@ -187,15 +172,14 @@ describe('ConversationService', () => {
   // ---------------------------------------------------------------------------
 
   describe('listRecentConversations', () => {
-    it('returns conversations for the given user', async () => {
+    it('returns conversations', async () => {
       const rows = [
         makeTestConversation(),
         makeTestConversation({ id: 'other-id' }),
       ];
       mockQuery.mockResolvedValue(rows);
 
-      const result =
-        await conversationService.listRecentConversations('user-1');
+      const result = await conversationService.listRecentConversations();
 
       expect(result).toHaveLength(2);
     });
@@ -203,28 +187,28 @@ describe('ConversationService', () => {
     it('passes the limit parameter to the query', async () => {
       mockQuery.mockResolvedValue([]);
 
-      await conversationService.listRecentConversations('user-1', 5);
+      await conversationService.listRecentConversations(5);
 
       const callArgs = mockQuery.mock.calls[0];
       const params = callArgs?.[1] as unknown[];
-      expect(params?.[1]).toBe(5);
+      expect(params?.[0]).toBe(5);
     });
 
     it('uses default limit of 20 when not provided', async () => {
       mockQuery.mockResolvedValue([]);
 
-      await conversationService.listRecentConversations('user-1');
+      await conversationService.listRecentConversations();
 
       const callArgs = mockQuery.mock.calls[0];
       const params = callArgs?.[1] as unknown[];
-      expect(params?.[1]).toBe(20);
+      expect(params?.[0]).toBe(20);
     });
 
     it('wraps DB error in DatabaseError', async () => {
       mockQuery.mockRejectedValue(new Error('fail'));
 
       await expect(
-        conversationService.listRecentConversations('u'),
+        conversationService.listRecentConversations(),
       ).rejects.toBeInstanceOf(DatabaseError);
     });
   });
@@ -234,23 +218,22 @@ describe('ConversationService', () => {
   // ---------------------------------------------------------------------------
 
   describe('deleteConversation', () => {
-    it('calls query with both id and userId', async () => {
+    it('calls query with the conversation id', async () => {
       mockQuery.mockResolvedValue([]);
 
-      await conversationService.deleteConversation('conv-1', 'user-1');
+      await conversationService.deleteConversation('conv-1');
 
       expect(mockQuery).toHaveBeenCalledOnce();
       const callArgs = mockQuery.mock.calls[0];
       const params = callArgs?.[1] as unknown[];
       expect(params).toContain('conv-1');
-      expect(params).toContain('user-1');
     });
 
     it('wraps DB error in DatabaseError', async () => {
       mockQuery.mockRejectedValue(new Error('fail'));
 
       await expect(
-        conversationService.deleteConversation('c', 'u'),
+        conversationService.deleteConversation('c'),
       ).rejects.toBeInstanceOf(DatabaseError);
     });
   });

@@ -1,7 +1,6 @@
 import { McpToolError } from '../errors/index.js';
 import { createLogger } from '../lib/logger.js';
 import type { CostTimeRange, CostGroupBy } from '../models/job.js';
-import type { AssumedCredentials } from '../lib/sts.js';
 import { getDbSchema } from '../tools/get-db-schema.js';
 import { runSqlQuery } from '../tools/run-sql-query.js';
 import { getRedisStats } from '../tools/get-redis-stats.js';
@@ -14,7 +13,6 @@ type ToolInput = Record<string, unknown>;
 export async function dispatchTool(
   name: string,
   input: ToolInput,
-  awsCredentials?: AssumedCredentials,
 ): Promise<unknown> {
   log.info({ tool: name }, 'Dispatching tool');
 
@@ -29,13 +27,10 @@ export async function dispatchTool(
     case 'get_redis_stats':
       return getRedisStats();
     case 'get_aws_costs':
-      return getAwsCosts(
-        {
-          time_range: input['time_range'] as CostTimeRange | undefined,
-          group_by: input['group_by'] as CostGroupBy | undefined,
-        },
-        awsCredentials,
-      );
+      return getAwsCosts({
+        time_range: input['time_range'] as CostTimeRange | undefined,
+        group_by: input['group_by'] as CostGroupBy | undefined,
+      });
     default:
       throw new McpToolError(`Unknown tool: ${name}`, name);
   }

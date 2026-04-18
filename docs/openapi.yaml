@@ -4,24 +4,14 @@ info:
   version: 1.0.0
   description: |
     Conversational AI backend for infrastructure monitoring. Engineers ask plain-English
-    questions about failed jobs, Redis cache health, and AWS costs. The server authenticates
-    via JWT, resolves per-user AWS IAM Role ARNs via STS AssumeRole, and routes questions
-    through Claude (Anthropic API) with an agentic tool-use loop backed by PostgreSQL, Redis,
-    and AWS Cost Explorer.
-
-    ## Authentication
-
-    All `/api/chat` and `/api/aws-accounts` endpoints require a **Bearer access token**
-    obtained from `POST /api/auth/login`. Tokens expire in **15 minutes**.
-
-    Use `POST /api/auth/refresh` (with the `refreshToken` HTTP-only cookie) to silently
-    obtain new tokens. Refresh tokens expire in **7 days** and are **rotated** on every use.
+    questions about failed jobs, Redis cache health, and AWS costs. The server routes
+    questions through Claude (Anthropic API) with an agentic tool-use loop backed by
+    PostgreSQL, Redis, and AWS Cost Explorer.
 
     ## Rate Limits
 
     | Endpoint group | Production | Development |
     |---------------|-----------|-------------|
-    | `/api/auth/*` | 5 req / 15 min | 50 req / 15 min |
     | `/api/chat`   | 20 req / 15 min | 100 req / 15 min |
     | All others    | 100 req / 15 min | 500 req / 15 min |
 
@@ -41,35 +31,13 @@ servers:
 tags:
   - name: Health
     description: Liveness and readiness probes
-  - name: Auth
-    description: Authentication — registration, login, token refresh, logout, profile
-  - name: AWS Accounts
-    description: Manage per-user AWS IAM Role ARNs for Cost Explorer access
   - name: Chat
     description: Conversational AI queries powered by Claude with tool use
 
 # ---------------------------------------------------------------------------
-# Security Scheme
+# Components
 # ---------------------------------------------------------------------------
 components:
-  securitySchemes:
-    BearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        HS256 JWT access token. Obtain from `POST /api/auth/login`. Expires in 15 minutes.
-        Include as: `Authorization: Bearer <token>`
-
-    RefreshCookie:
-      type: apiKey
-      in: cookie
-      name: refreshToken
-      description: |
-        HTTP-only, secure, SameSite=Strict cookie containing the refresh token.
-        Set automatically by `POST /api/auth/login`. Used only on `POST /api/auth/refresh`
-        and `POST /api/auth/logout`. Expires in 7 days.
-
   # ---------------------------------------------------------------------------
   # Shared schemas
   # ---------------------------------------------------------------------------
@@ -85,15 +53,7 @@ components:
           properties:
             code:
               type: string
-              enum:
-                - VALIDATION_ERROR
-                - UNAUTHORIZED
-                - FORBIDDEN
-                - NOT_FOUND
-                - RATE_LIMIT_EXCEEDED
-                - DATABASE_ERROR
-                - MCP_TOOL_ERROR
-              example: UNAUTHORIZED
+              example: RATE_LIMIT_EXCEEDED
             message:
               type: string
               example: Invalid or expired access token
@@ -109,199 +69,8 @@ components:
       example:
         error:
           code: VALIDATION_ERROR
-          message: Invalid registration data
+          message: Invalid request data
           requestId: abc123
-
-    # ---- Auth -----------------------------------------------------------------
-    RegisterRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-          example: alice@example.com
-        password:
-          type: string
-          minLength: 8
-          maxLength: 128
-          format: password
-          description: Minimum 8 characters, maximum 128
-          example: 'my-secure-password-123'
-
-    RegisterResponse:
-      type: object
-      required: [id, email, role]
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: 6a7eeb83-39ec-496a-8360-8305759c2f69
-        email:
-          type: string
-          format: email
-          example: alice@example.com
-        role:
-          type: string
-          enum: [user, admin]
-          description: |
-            The first registered user always receives `admin`. All subsequent
-            registrations receive `user`.
-          example: admin
-
-    LoginRequest:
-      type: object
-      required: [email, password]
-      properties:
-        email:
-          type: string
-          format: email
-          example: alice@example.com
-        password:
-          type: string
-          format: password
-          example: 'my-secure-password-123'
-
-    LoginResponse:
-      type: object
-      required: [accessToken, user]
-      properties:
-        accessToken:
-          type: string
-          description: |
-            HS256 JWT. Valid for **15 minutes**. Store in memory (not localStorage).
-            Send as `Authorization: Bearer <token>`.
-          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        user:
-          type: object
-          required: [id, email, role]
-          properties:
-            id:
-              type: string
-              format: uuid
-              example: 6a7eeb83-39ec-496a-8360-8305759c2f69
-            email:
-              type: string
-              format: email
-              example: alice@example.com
-            role:
-              type: string
-              enum: [user, admin]
-              example: admin
-
-    RefreshResponse:
-      type: object
-      required: [accessToken]
-      properties:
-        accessToken:
-          type: string
-          description: |
-            New HS256 JWT access token. Valid for 15 minutes.
-            The old refresh token cookie is simultaneously **revoked** and replaced
-            with a new one (token rotation).
-          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-    MeResponse:
-      type: object
-      required: [id, email, role, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: 6a7eeb83-39ec-496a-8360-8305759c2f69
-        email:
-          type: string
-          format: email
-          example: alice@example.com
-        role:
-          type: string
-          enum: [user, admin]
-          example: admin
-        lastLoginAt:
-          type: string
-          format: date-time
-          nullable: true
-          example: '2026-04-16T12:29:45.240Z'
-        createdAt:
-          type: string
-          format: date-time
-          example: '2026-04-16T12:24:35.254Z'
-
-    # ---- AWS Accounts ---------------------------------------------------------
-    AwsAccount:
-      type: object
-      required: [id, userId, name, roleArn, isDefault, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-          example: d88a973c-3d58-447e-b1e1-1c620d482c49
-        userId:
-          type: string
-          format: uuid
-          example: 6a7eeb83-39ec-496a-8360-8305759c2f69
-        name:
-          type: string
-          example: prod
-        roleArn:
-          type: string
-          description: |
-            IAM Role ARN in the format `arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME`.
-            This role must trust the server's IAM principal to call STS AssumeRole.
-          example: arn:aws:iam::123456789012:role/CostExplorerRole
-        isDefault:
-          type: boolean
-          description: |
-            If true, this account is used automatically for `/api/chat` requests that
-            don't specify an `awsAccountId`. Only one account per user can be default.
-          example: true
-        createdAt:
-          type: string
-          format: date-time
-          example: '2026-04-16T12:48:53.944Z'
-
-    AddAccountRequest:
-      type: object
-      required: [name, roleArn]
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 100
-          description: Human-friendly label for this account (unique per user)
-          example: prod
-        roleArn:
-          type: string
-          pattern: '^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]{1,64}$'
-          description: |
-            IAM Role ARN to assume when querying AWS Cost Explorer.
-            The role must have `ce:GetCostAndUsage` permission and a trust policy
-            allowing the server's IAM identity to assume it.
-          example: arn:aws:iam::123456789012:role/CostExplorerRole
-        makeDefault:
-          type: boolean
-          default: false
-          description: |
-            If true, this account becomes the default. Any previously default account
-            is demoted. The first account added is always made default automatically,
-            regardless of this flag.
-          example: false
-
-    ListAccountsResponse:
-      type: object
-      required: [accounts]
-      properties:
-        accounts:
-          type: array
-          items:
-            $ref: '#/components/schemas/AwsAccount'
-
-    AddAccountResponse:
-      type: object
-      required: [account]
-      properties:
-        account:
-          $ref: '#/components/schemas/AwsAccount'
 
     # ---- Chat -----------------------------------------------------------------
     ChatRequest:
@@ -323,18 +92,9 @@ components:
           format: uuid
           description: |
             Omit to start a new conversation. Include to continue a previous one
-            (must be owned by the authenticated user — foreign or unrecognized IDs
-            silently create a new conversation). Claude will have access to the full
-            message history.
+            (unrecognized IDs silently create a new conversation). Claude will have
+            access to the full message history.
           example: 7a52d211-d4a5-4be4-97f5-c231cfe81aae
-        awsAccountId:
-          type: string
-          format: uuid
-          description: |
-            UUID of a linked AWS account to use for cost queries. If omitted, the
-            user's default AWS account is used. If no account is linked, AWS cost
-            queries return an error.
-          example: d88a973c-3d58-447e-b1e1-1c620d482c49
 
     ChatResponse:
       type: object
@@ -463,392 +223,6 @@ paths:
                 status: ok
                 timestamp: '2026-04-16T12:00:00.000Z'
 
-  # ── Auth ──────────────────────────────────────────────────────────────────
-  /api/auth/register:
-    post:
-      tags: [Auth]
-      summary: Register a new user account
-      description: |
-        Creates a new user. The **first** user to register automatically receives the
-        `admin` role; all subsequent users receive `user`.
-
-        Password is hashed with **bcrypt (cost 12)** — never stored in plaintext.
-        Duplicate email addresses return a generic error (email existence is not leaked).
-
-        **Rate limit:** 5 requests / 15 minutes per IP in production.
-      operationId: register
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RegisterRequest'
-            examples:
-              first_user:
-                summary: First registration (becomes admin)
-                value:
-                  email: admin@example.com
-                  password: 'super-secure-password-1'
-              regular_user:
-                summary: Subsequent registration (becomes user)
-                value:
-                  email: alice@example.com
-                  password: 'alice-password-456'
-      responses:
-        '201':
-          description: User created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RegisterResponse'
-              examples:
-                admin:
-                  value:
-                    id: 6a7eeb83-39ec-496a-8360-8305759c2f69
-                    email: admin@example.com
-                    role: admin
-                user:
-                  value:
-                    id: b2c44d1e-1234-5678-abcd-ef1234567890
-                    email: alice@example.com
-                    role: user
-        '400':
-          description: Validation error or duplicate email
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidationErrorResponse'
-              example:
-                error:
-                  code: VALIDATION_ERROR
-                  message: 'Registration failed — check your input'
-                  requestId: abc123
-        '429':
-          description: Rate limit exceeded
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/auth/login:
-    post:
-      tags: [Auth]
-      summary: Login and receive tokens
-      description: |
-        Authenticates the user and returns:
-        - **`accessToken`** — HS256 JWT, 15-minute TTL (in response body)
-        - **`refreshToken` cookie** — HS256 JWT, 7-day TTL, `httpOnly; secure; sameSite=strict; path=/api/auth`
-
-        The refresh token is stored as `SHA-256(token)` in Redis — the raw token is
-        never persisted server-side.
-
-        Login uses a **constant-time code path** even when the email doesn't exist,
-        preventing timing-based email enumeration attacks.
-
-        **Rate limit:** 5 requests / 15 minutes per IP in production.
-      operationId: login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LoginRequest'
-            example:
-              email: admin@example.com
-              password: 'super-secure-password-1'
-      responses:
-        '200':
-          description: Login successful
-          headers:
-            Set-Cookie:
-              description: |
-                `refreshToken=<jwt>; Path=/api/auth; HttpOnly; Secure; SameSite=Strict; Max-Age=604800`
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LoginResponse'
-              example:
-                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-                user:
-                  id: 6a7eeb83-39ec-496a-8360-8305759c2f69
-                  email: admin@example.com
-                  role: admin
-        '400':
-          description: Validation error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidationErrorResponse'
-        '401':
-          description: Invalid email or password
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error:
-                  code: UNAUTHORIZED
-                  message: Invalid email or password
-        '429':
-          description: Rate limit exceeded
-
-  /api/auth/refresh:
-    post:
-      tags: [Auth]
-      summary: Rotate token pair using refresh cookie
-      description: |
-        Issues a new access token and rotates the refresh token:
-
-        1. Reads the `refreshToken` HTTP-only cookie
-        2. Verifies the JWT signature
-        3. Looks up the SHA-256 hash in Redis — if not found, the token was revoked
-        4. **Deletes** the old Redis entry (revokes old refresh token)
-        5. Issues new access token (15min) + new refresh token (7d)
-        6. Stores new hash in Redis
-        7. Sets new cookie
-
-        If a stolen refresh token is replayed after rotation, the hash will not match
-        and a 401 is returned.
-      operationId: refreshToken
-      security:
-        - RefreshCookie: []
-      responses:
-        '200':
-          description: New access token issued
-          headers:
-            Set-Cookie:
-              description: New `refreshToken` cookie (old one is revoked)
-              schema:
-                type: string
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RefreshResponse'
-              example:
-                accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-        '401':
-          description: No cookie, invalid JWT, or token revoked
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              examples:
-                no_cookie:
-                  value:
-                    error:
-                      code: UNAUTHORIZED
-                      message: No refresh token
-                revoked:
-                  value:
-                    error:
-                      code: UNAUTHORIZED
-                      message: Refresh token revoked
-                invalid:
-                  value:
-                    error:
-                      code: UNAUTHORIZED
-                      message: Invalid or expired refresh token
-
-  /api/auth/logout:
-    post:
-      tags: [Auth]
-      summary: Revoke refresh token and clear cookie
-      description: |
-        Immediately revokes the current refresh token by deleting its Redis entry,
-        then clears the `refreshToken` cookie. Returns 204 No Content.
-
-        A subsequent call to `/api/auth/refresh` will return 401. The access token
-        remains valid until its 15-minute TTL expires (access tokens are stateless —
-        there is no blocklist).
-      operationId: logout
-      security:
-        - RefreshCookie: []
-      responses:
-        '204':
-          description: Logged out — cookie cleared, refresh token revoked
-          headers:
-            Set-Cookie:
-              description: Cookie cleared (Max-Age=0)
-              schema:
-                type: string
-        '401':
-          description: No valid refresh cookie
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/auth/me:
-    get:
-      tags: [Auth]
-      summary: Get current user profile
-      description: Returns the authenticated user's profile from the database.
-      operationId: getMe
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: Current user profile
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MeResponse'
-              example:
-                id: 6a7eeb83-39ec-496a-8360-8305759c2f69
-                email: admin@example.com
-                role: admin
-                lastLoginAt: '2026-04-16T12:29:45.240Z'
-                createdAt: '2026-04-16T12:24:35.254Z'
-        '401':
-          description: Missing or invalid access token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  # ── AWS Accounts ──────────────────────────────────────────────────────────
-  /api/aws-accounts:
-    get:
-      tags: [AWS Accounts]
-      summary: List linked AWS accounts
-      description: |
-        Returns all AWS IAM Role ARNs linked to the authenticated user.
-        Credentials (access keys, session tokens) are **never** stored or returned —
-        only the Role ARN.
-      operationId: listAwsAccounts
-      security:
-        - BearerAuth: []
-      responses:
-        '200':
-          description: List of linked accounts
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ListAccountsResponse'
-              example:
-                accounts:
-                  - id: d88a973c-3d58-447e-b1e1-1c620d482c49
-                    userId: 6a7eeb83-39ec-496a-8360-8305759c2f69
-                    name: prod
-                    roleArn: arn:aws:iam::123456789012:role/CostExplorerRole
-                    isDefault: true
-                    createdAt: '2026-04-16T12:48:53.944Z'
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-    post:
-      tags: [AWS Accounts]
-      summary: Link a new AWS IAM Role
-      description: |
-        Associates an AWS IAM Role ARN with the authenticated user. The server will use
-        STS AssumeRole to obtain short-lived credentials when the user makes AWS cost
-        queries.
-
-        **IAM trust policy requirement:** The role must trust the server's IAM identity:
-        ```json
-        {
-          "Effect": "Allow",
-          "Principal": { "AWS": "arn:aws:iam::SERVER_ACCOUNT:user/devops-copilot" },
-          "Action": "sts:AssumeRole"
-        }
-        ```
-
-        The role must also have `ce:GetCostAndUsage` permission on Cost Explorer.
-
-        The first account added is **automatically set as default**, regardless of
-        the `makeDefault` flag.
-      operationId: addAwsAccount
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddAccountRequest'
-            example:
-              name: prod
-              roleArn: arn:aws:iam::123456789012:role/CostExplorerRole
-              makeDefault: false
-      responses:
-        '201':
-          description: Account linked
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AddAccountResponse'
-              example:
-                account:
-                  id: d88a973c-3d58-447e-b1e1-1c620d482c49
-                  userId: 6a7eeb83-39ec-496a-8360-8305759c2f69
-                  name: prod
-                  roleArn: arn:aws:iam::123456789012:role/CostExplorerRole
-                  isDefault: true
-                  createdAt: '2026-04-16T12:48:53.944Z'
-        '400':
-          description: Invalid Role ARN format or duplicate name
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidationErrorResponse'
-              example:
-                error:
-                  code: VALIDATION_ERROR
-                  message: Invalid account data
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-
-  /api/aws-accounts/{id}:
-    delete:
-      tags: [AWS Accounts]
-      summary: Remove a linked AWS account
-      description: |
-        Deletes the account record and **immediately invalidates** any cached STS
-        credentials for this account in Redis (`DEL sts:{userId}:{accountId}`).
-
-        Only the owner of the account can delete it (user_id is checked in the query).
-      operationId: deleteAwsAccount
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: UUID of the AWS account to delete
-          schema:
-            type: string
-            format: uuid
-          example: d88a973c-3d58-447e-b1e1-1c620d482c49
-      responses:
-        '204':
-          description: Account deleted
-        '401':
-          description: Not authenticated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '404':
-          description: Account not found or not owned by this user
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error:
-                  code: NOT_FOUND
-                  message: AWS account not found
-
   # ── Chat ──────────────────────────────────────────────────────────────────
   /api/chat:
     post:
@@ -857,15 +231,13 @@ paths:
       description: |
         Sends a natural-language question to Claude. The server:
 
-        1. Verifies the Bearer JWT
-        2. Resolves the user's AWS credentials via STS AssumeRole (cached in Redis)
-        3. Loads conversation history from PostgreSQL (if `conversationId` provided **and owned by this user** — foreign or unrecognized IDs silently start a new conversation)
-        4. Runs the **agentic tool loop**:
+        1. Loads conversation history from PostgreSQL (if `conversationId` provided — unrecognized IDs silently start a new conversation)
+        2. Runs the **agentic tool loop**:
            - Claude decides which tools to call (`query_failed_jobs`, `get_redis_stats`, `get_aws_costs`)
            - All tools in a single turn are executed **in parallel** via `Promise.all`
            - Loop continues until `stop_reason = "end_turn"`
-        5. Saves the exchange to PostgreSQL
-        6. Returns the complete answer
+        3. Saves the exchange to PostgreSQL
+        4. Returns the complete answer
 
         **Available tools Claude can invoke:**
         | Tool | Data source | Asks about |
@@ -876,8 +248,6 @@ paths:
 
         **Rate limit:** 20 requests / 15 minutes per IP in production.
       operationId: chat
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -894,11 +264,6 @@ paths:
                 value:
                   message: Can you check the Redis cache health too?
                   conversationId: 7a52d211-d4a5-4be4-97f5-c231cfe81aae
-              with_specific_account:
-                summary: Query with a specific AWS account
-                value:
-                  message: Why did costs spike this week?
-                  awsAccountId: d88a973c-3d58-447e-b1e1-1c620d482c49
       responses:
         '200':
           description: AI response with tool results
@@ -923,12 +288,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationErrorResponse'
-        '401':
-          description: Missing or invalid Bearer token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '429':
           description: Rate limit exceeded
           content:
@@ -979,8 +338,6 @@ paths:
 
         **Rate limit:** 20 requests / 15 minutes per IP in production.
       operationId: chatStream
-      security:
-        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -1020,12 +377,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationErrorResponse'
-        '401':
-          description: Missing or invalid Bearer token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
         '429':
           description: Rate limit exceeded
           content:

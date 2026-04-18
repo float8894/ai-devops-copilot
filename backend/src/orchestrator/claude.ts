@@ -4,7 +4,6 @@ import { createLogger } from '../lib/logger.js';
 import { tools } from './tools.js';
 import { dispatchTool } from './tool-dispatcher.js';
 import { conversationService } from '../services/conversation.service.js';
-import type { AssumedCredentials } from '../lib/sts.js';
 
 const log = createLogger({ service: 'claude-orchestrator' });
 
@@ -19,7 +18,6 @@ type Message = Anthropic.MessageParam;
 async function executeToolBatch(
   toolCallBlocks: Anthropic.Messages.ContentBlock[],
   convId: string,
-  awsCredentials: AssumedCredentials | undefined,
   toolsUsed: string[],
   onToolStart?: (name: string) => void,
   onToolDone?: (name: string) => void,
@@ -41,7 +39,6 @@ async function executeToolBatch(
           const result = await dispatchTool(
             block.name,
             block.input as Record<string, unknown>,
-            awsCredentials,
           );
           onToolDone?.(block.name);
           return {
@@ -95,33 +92,28 @@ When answering questions:
 
 export async function runCopilotQuery(
   userMessage: string,
-  userId: string,
   conversationId?: string,
-  awsCredentials?: AssumedCredentials,
 ): Promise<CopilotResult> {
   // Create new conversation or load existing history
   let convId = conversationId;
   let history: Message[] = [];
 
   if (convId) {
-    // Verify conversation exists and is owned by this user
-    const conversation = await conversationService.getConversation(
-      convId,
-      userId,
-    );
+    // Verify conversation exists
+    const conversation = await conversationService.getConversation(convId);
     if (!conversation) {
       log.warn(
         { conversationId: convId },
-        'Conversation not found or not owned by user, creating new one',
+        'Conversation not found, creating new one',
       );
-      convId = await conversationService.createConversation(userId);
+      convId = await conversationService.createConversation();
     } else {
       // Load conversation history
       history = await conversationService.getHistory(convId);
     }
   } else {
     // Create new conversation
-    convId = await conversationService.createConversation(userId);
+    convId = await conversationService.createConversation();
   }
 
   // Save user message
@@ -205,7 +197,6 @@ export async function runCopilotQuery(
     const validResults = await executeToolBatch(
       toolCallBlocks,
       convId,
-      awsCredentials,
       toolsUsed,
     );
 
@@ -219,20 +210,14 @@ export async function runCopilotQuery(
 
 async function resolveConversation(
   conversationId: string | undefined,
-  userId: string,
 ): Promise<{ convId: string; history: Message[] }> {
   if (conversationId) {
-    const conversation = await conversationService.getConversation(
-      conversationId,
-      userId,
-    );
+    const conversation =
+      await conversationService.getConversation(conversationId);
     if (!conversation) {
-      log.warn(
-        { conversationId },
-        'Conversation not found or not owned by user, creating new one',
-      );
+      log.warn({ conversationId }, 'Conversation not found, creating new one');
       return {
-        convId: await conversationService.createConversation(userId),
+        convId: await conversationService.createConversation(),
         history: [],
       };
     }
@@ -242,19 +227,17 @@ async function resolveConversation(
     };
   }
   return {
-    convId: await conversationService.createConversation(userId),
+    convId: await conversationService.createConversation(),
     history: [],
   };
 }
 
 export async function runCopilotQueryStream(
   userMessage: string,
-  userId: string,
   onEvent: (event: StreamEvent) => void,
   conversationId?: string,
-  awsCredentials?: AssumedCredentials,
 ): Promise<void> {
-  const { convId, history } = await resolveConversation(conversationId, userId);
+  const { convId, history } = await resolveConversation(conversationId);
 
   await conversationService.addMessage(convId, 'user', userMessage);
 
@@ -349,7 +332,6 @@ export async function runCopilotQueryStream(
     const toolResults = await executeToolBatch(
       toolCallBlocks,
       convId,
-      awsCredentials,
       toolsUsed,
       (name) => onEvent({ type: 'tool_start', tool: name }),
       (name) => onEvent({ type: 'tool_done', tool: name }),

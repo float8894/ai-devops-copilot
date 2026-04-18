@@ -36,12 +36,6 @@ const mockRunSqlQuery = vi.mocked(runSqlQuery);
 const mockGetRedisStats = vi.mocked(getRedisStats);
 const mockGetAwsCosts = vi.mocked(getAwsCosts);
 
-const fakeCredentials = {
-  accessKeyId: 'AKIA...',
-  secretAccessKey: 'secret',
-  sessionToken: 'token',
-};
-
 describe('dispatchTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -148,45 +142,13 @@ describe('dispatchTool', () => {
     };
     mockGetAwsCosts.mockResolvedValue(fakeCosts);
 
-    const result = await dispatchTool(
-      'get_aws_costs',
-      { time_range: '30d', group_by: 'SERVICE' },
-      fakeCredentials,
-    );
+    const result = await dispatchTool('get_aws_costs', {
+      time_range: '30d',
+      group_by: 'SERVICE',
+    });
 
     expect(mockGetAwsCosts).toHaveBeenCalledOnce();
     expect(result).toBe(fakeCosts);
-  });
-
-  it('forwards awsCredentials to getAwsCosts', async () => {
-    mockGetAwsCosts.mockResolvedValue({
-      total_cost: 0,
-      entries: [],
-      currency: 'USD',
-      period: { start: '', end: '' },
-      group_by: 'SERVICE',
-    } as GetAwsCostsResult);
-
-    await dispatchTool('get_aws_costs', {}, fakeCredentials);
-
-    expect(mockGetAwsCosts).toHaveBeenCalledWith(
-      expect.anything(),
-      fakeCredentials,
-    );
-  });
-
-  it('passes undefined awsCredentials when not provided', async () => {
-    mockGetAwsCosts.mockResolvedValue({
-      total_cost: 0,
-      entries: [],
-      currency: 'USD',
-      period: { start: '', end: '' },
-      group_by: 'SERVICE',
-    } as GetAwsCostsResult);
-
-    await dispatchTool('get_aws_costs', {});
-
-    expect(mockGetAwsCosts).toHaveBeenCalledWith(expect.anything(), undefined);
   });
 
   // ---------------------------------------------------------------------------

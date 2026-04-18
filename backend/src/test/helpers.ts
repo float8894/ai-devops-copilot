@@ -44,41 +44,18 @@ export function makeMockPgClient(rows: Record<string, unknown>[] = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Test user factories
+// Test conversation factories
 // ---------------------------------------------------------------------------
-
-export function makeTestUser(
-  overrides: Partial<{
-    id: string;
-    email: string;
-    password_hash: string;
-    role: 'user' | 'admin';
-    created_at: Date;
-    last_login_at: Date | null;
-  }> = {},
-) {
-  return {
-    id: 'test-user-id-123',
-    email: 'test@example.com',
-    password_hash: '$2b$12$hashedpasswordexample',
-    role: 'user' as const,
-    created_at: new Date('2026-01-01'),
-    last_login_at: null,
-    ...overrides,
-  };
-}
 
 export function makeTestConversation(
   overrides: Partial<{
     id: string;
-    user_id: string;
     created_at: Date;
     updated_at: Date;
   }> = {},
 ) {
   return {
     id: 'test-conv-id-456',
-    user_id: 'test-user-id-123',
     created_at: new Date('2026-01-01'),
     updated_at: new Date('2026-01-01'),
     ...overrides,

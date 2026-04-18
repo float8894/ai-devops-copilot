@@ -5,8 +5,6 @@ import {
   McpToolError,
   ValidationError,
   NotFoundError,
-  AuthError,
-  ForbiddenError,
 } from './index.js';
 
 describe('AppError', () => {
@@ -70,31 +68,6 @@ describe('NotFoundError', () => {
     const err = new NotFoundError('Not found');
     expect(err.code).toBe('NOT_FOUND');
     expect(err.statusCode).toBe(404);
-    expect(err).toBeInstanceOf(AppError);
-  });
-});
-
-describe('AuthError', () => {
-  it('has status 401 and defaults to Unauthorized', () => {
-    const err = new AuthError();
-    expect(err.code).toBe('UNAUTHORIZED');
-    expect(err.statusCode).toBe(401);
-    expect(err.message).toBe('Unauthorized');
-    expect(err).toBeInstanceOf(AppError);
-  });
-
-  it('accepts a custom message', () => {
-    const err = new AuthError('Token expired');
-    expect(err.message).toBe('Token expired');
-  });
-});
-
-describe('ForbiddenError', () => {
-  it('has status 403 and defaults to Forbidden', () => {
-    const err = new ForbiddenError();
-    expect(err.code).toBe('FORBIDDEN');
-    expect(err.statusCode).toBe(403);
-    expect(err.message).toBe('Forbidden');
     expect(err).toBeInstanceOf(AppError);
   });
 });

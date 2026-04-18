@@ -8,16 +8,15 @@
 ## Table of Contents
 
 1. [Threat Model](#1-threat-model)
-2. [Authentication Deep Dive](#2-authentication-deep-dive)
-3. [AWS Credential Security](#3-aws-credential-security)
-4. [Transport Security](#4-transport-security)
-5. [Input Validation & Injection Prevention](#5-input-validation--injection-prevention)
-6. [Rate Limiting & Brute Force Protection](#6-rate-limiting--brute-force-protection)
-7. [Data Storage Security](#7-data-storage-security)
-8. [Error Handling & Information Leakage](#8-error-handling--information-leakage)
-9. [Dependency Security](#9-dependency-security)
-10. [OWASP Top 10 Mapping](#10-owasp-top-10-mapping)
-11. [Secrets Management](#11-secrets-management)
+2. [AWS Credential Security](#2-aws-credential-security)
+3. [Transport Security](#3-transport-security)
+4. [Input Validation & Injection Prevention](#4-input-validation--injection-prevention)
+5. [Rate Limiting](#5-rate-limiting)
+6. [Data Storage Security](#6-data-storage-security)
+7. [Error Handling & Information Leakage](#7-error-handling--information-leakage)
+8. [Dependency Security](#8-dependency-security)
+9. [OWASP Top 10 Mapping](#9-owasp-top-10-mapping)
+10. [Secrets Management](#10-secrets-management)
 
 ---
 
@@ -25,123 +24,31 @@
 
 ### Assets
 
-| Asset                       | Sensitivity | Location                             |
-| --------------------------- | ----------- | ------------------------------------ |
-| User passwords              | Critical    | PostgreSQL (`password_hash` bcrypt)  |
-| JWT signing secrets         | Critical    | Environment variable only            |
-| Refresh tokens              | High        | Redis (as SHA-256 hash only)         |
-| AWS STS session credentials | High        | Redis (short-lived, in-memory only)  |
-| IAM Role ARNs               | Medium      | PostgreSQL (`aws_accounts.role_arn`) |
-| Conversation history        | Medium      | PostgreSQL (`messages` table)        |
-| Pino structured logs        | Low         | stdout (no secrets logged)           |
+| Asset                       | Sensitivity | Location                         |
+| --------------------------- | ----------- | -------------------------------- |
+| AWS STS session credentials | High        | In-memory only (never persisted) |
+| Conversation history        | Medium      | PostgreSQL (`messages` table)    |
+| Pino structured logs        | Low         | stdout (no secrets logged)       |
 
 ### Threat Actors
 
-| Actor                        | Capability           | Primary vectors                                               |
-| ---------------------------- | -------------------- | ------------------------------------------------------------- |
-| Unauthenticated attacker     | Internet access      | Brute-force login, registration spam, large payloads          |
-| Authenticated malicious user | Valid JWT            | Access other users' data, abuse AWS cost queries              |
-| Compromised client           | XSS in browser       | Steal access token from memory, CSRF against refresh endpoint |
-| MITM                         | Network position     | Intercept tokens in transit                                   |
-| Insider                      | DB/Redis read access | Read hashed passwords, Redis token hashes                     |
+| Actor                    | Capability       | Primary vectors                                      |
+| ------------------------ | ---------------- | ---------------------------------------------------- |
+| Unauthenticated attacker | Internet access  | Large payloads, rate limit abuse, injection attempts |
+| MITM                     | Network position | Intercept API traffic in transit                     |
+| Insider                  | DB/Redis access  | Read conversation history, job data                  |
 
 ---
 
-## 2. Authentication Deep Dive
-
-### JWT Design Decisions
-
-```
-Access Token (15 min)
-─────────────────────
-Header:  { "alg": "HS256", "typ": "JWT" }
-Payload: {
-  "sub": "<userId UUID>",
-  "email": "alice@example.com",
-  "role": "user",
-  "iat": <unix timestamp>,
-  "exp": <unix timestamp + 900>
-}
-Signed with: JWT_SECRET (env var, min 32 chars)
-
-Refresh Token (7 days)
-──────────────────────
-Header:  { "alg": "HS256", "typ": "JWT" }
-Payload: {
-  "sub": "<userId UUID>",
-  "iat": <unix timestamp>,
-  "exp": <unix timestamp + 604800>
-}
-Signed with: JWT_REFRESH_SECRET (separate secret, min 32 chars)
-```
-
-**Why two separate secrets?**  
-If an attacker obtains `JWT_SECRET`, they can forge access tokens but **cannot** forge refresh tokens (different key). The blast radius of a single key compromise is halved.
-
-**Why HS256 and not RS256?**  
-This is a single-service backend — there are no other services that need to verify JWTs. Symmetric HS256 is faster and avoids key-pair management complexity. If a microservices architecture is adopted later, RS256 (asymmetric) should be adopted.
-
-### Token Storage (Client Recommendations)
-
-| Location              | Risks                                      | Recommendation                      |
-| --------------------- | ------------------------------------------ | ----------------------------------- |
-| `localStorage`        | XSS can steal token                        | ❌ Never                            |
-| `sessionStorage`      | XSS can steal token                        | ❌ Never                            |
-| In-memory JS variable | Lost on page refresh; XSS can't persist it | ✅ Recommended for access token     |
-| httpOnly cookie       | XSS-proof; requires CSRF protection        | ✅ Refresh token always stored here |
-
-### Refresh Token Security Chain
-
-```
-1. Server generates refresh token (random JWT)
-2. SHA-256(token) stored in Redis as key
-   Raw token → never stored server-side
-3. Token sent to client as httpOnly cookie
-4. On refresh:
-   a. JWT signature verified (HS256)
-   b. SHA-256(presented token) looked up in Redis
-   c. Match required — prevents forged or revoked tokens
-   d. Old key deleted atomically
-   e. New token pair issued
-5. On logout:
-   Redis key deleted immediately
-   Cookie cleared
-```
-
-**Token rotation detects theft:**  
-If token T1 is stolen and an attacker uses it after the legitimate user already rotated to T2, T1's hash no longer exists in Redis → 401. The attacker is locked out. The legitimate user's T2 also becomes invalid (conservative design — requires re-login).
-
-### Timing Attack Prevention
-
-Login uses a **constant-time code path** regardless of whether the email exists:
-
-```typescript
-// When email NOT found — still runs bcrypt.compare against dummy hash
-// This prevents an attacker from timing login to discover valid emails
-const dummyHash =
-  '$2a$12$invalidsaltinvalidsaltinvalidsaltinvalidsaltinvalidsal';
-const valid =
-  user !== null
-    ? await verifyPassword(password, user.passwordHash)
-    : await verifyPassword(password, dummyHash).then(() => false);
-```
-
-bcrypt.compare takes ~300ms regardless — this ensures both paths take approximately the same time.
-
----
-
-## 3. AWS Credential Security
+## 2. AWS Credential Security
 
 ### What is stored vs. what is not
 
-| Data                         | Stored in DB | Stored in Redis | Transmitted to client         |
-| ---------------------------- | ------------ | --------------- | ----------------------------- |
-| IAM Role ARN                 | ✅ Yes       | ❌ No           | ✅ Yes (it's a resource name) |
-| AWS Access Key ID            | ❌ Never     | ❌ Never        | ❌ Never                      |
-| AWS Secret Access Key        | ❌ Never     | ❌ Never        | ❌ Never                      |
-| STS Access Key ID (temp)     | ❌ Never     | ✅ 59 min max   | ❌ Never                      |
-| STS Secret Access Key (temp) | ❌ Never     | ✅ 59 min max   | ❌ Never                      |
-| STS Session Token (temp)     | ❌ Never     | ✅ 59 min max   | ❌ Never                      |
+| Data                     | Stored in DB | In-memory only | Transmitted to client |
+| ------------------------ | ------------ | -------------- | --------------------- |
+| AWS Access Key ID        | ❌ Never     | ✅ Via env var | ❌ Never              |
+| AWS Secret Access Key    | ❌ Never     | ✅ Via env var | ❌ Never              |
+| STS Session Token (temp) | ❌ Never     | ✅ 59 min max  | ❌ Never              |
 
 ### STS AssumeRole security properties
 
@@ -167,7 +74,7 @@ Each user's IAM role need only grant `ce:GetCostAndUsage` — no broader AWS acc
 
 ---
 
-## 4. Transport Security
+## 3. Transport Security
 
 ### Helmet Headers Set
 
@@ -211,17 +118,14 @@ Set-Cookie: refreshToken=<jwt>;
 
 ---
 
-## 5. Input Validation & Injection Prevention
+## 4. Input Validation & Injection Prevention
 
 ### Request Body Validation
 
 Every public-facing input is validated with **Zod** before any database or API call:
 
 ```
-RegisterSchema    → email format, password 8-128 chars
-LoginSchema       → email format
-ChatRequestSchema → message 1-2000 chars, optional uuid fields
-AddAccountSchema  → name 1-100 chars, roleArn regex validation
+ChatRequestSchema → message 1-2000 chars, optional uuid conversationId
 envSchema         → all env vars at startup (process.exit on failure)
 ```
 
@@ -231,10 +135,10 @@ All PostgreSQL queries use parameterized placeholders — **never** string inter
 
 ```typescript
 // ✅ Safe — parameterized
-await query('SELECT * FROM users WHERE email = $1', [email]);
+await query('SELECT * FROM jobs WHERE status = $1', [status]);
 
 // ❌ Forbidden — never in this codebase
-await db.query(`SELECT * FROM users WHERE email = '${email}'`);
+await db.query(`SELECT * FROM jobs WHERE status = '${status}'`);
 ```
 
 The `query<T>()` helper in `src/lib/database.ts` enforces this pattern throughout the codebase.
@@ -260,20 +164,13 @@ Prevents HTTP request body-size DoS attacks; 10KB is more than sufficient for an
 
 ---
 
-## 6. Rate Limiting & Brute Force Protection
+## 5. Rate Limiting
 
 ### Rate Limit Strategy
 
-Three separate limiters with different policies:
+Two separate limiters:
 
 ```
-authRateLimiter (most restrictive)
-  Window:     15 minutes
-  Prod limit: 5 requests
-  Dev limit:  50 requests
-  Scope:      /api/auth/* (login, register, refresh, logout)
-  Purpose:    Prevents brute-force attacks on credentials
-
 chatRateLimiter
   Window:     15 minutes
   Prod limit: 20 requests
@@ -308,41 +205,27 @@ Retry-After: <seconds>
 }
 ```
 
-### Brute Force Mitigations (layered)
-
-1. **Rate limiting** — 5 login attempts per 15 min per IP
-2. **bcrypt cost 12** — ~300ms per attempt even if rate limit is bypassed
-3. **Constant-time comparison** — doesn't leak email existence
-4. **Generic error messages** — "Invalid email or password" (never splits the two)
-
 ---
 
-## 7. Data Storage Security
+## 6. Data Storage Security
 
 ### PostgreSQL
 
-| Data                 | Stored as               | Notes                               |
-| -------------------- | ----------------------- | ----------------------------------- |
-| Passwords            | `bcrypt($password, 12)` | Never plaintext                     |
-| Emails               | Plaintext               | Required for login lookup           |
-| Role ARNs            | Plaintext               | They're resource names, not secrets |
-| Conversation content | Plaintext               | Stored for history recall           |
-| Job error messages   | Plaintext               | Source of truth for job failures    |
+| Data                 | Stored as | Notes                               |
+| -------------------- | --------- | ----------------------------------- |
+| Role ARNs            | Plaintext | They're resource names, not secrets |
+| Conversation content | Plaintext | Stored for history recall           |
+| Job error messages   | Plaintext | Source of truth for job failures    |
 
 **Access control:** The application connects as a single database user (`copilot`) with CRUD permissions only. No DDL in application code.
 
 ### Redis
 
-| Key pattern                | Value                     | TTL                    | Purpose                  |
-| -------------------------- | ------------------------- | ---------------------- | ------------------------ |
-| `refresh:{SHA-256(token)}` | `userId` string           | 604800s (7d)           | Refresh token validation |
-| `sts:{userId}:{accountId}` | JSON `AssumedCredentials` | `(expiry - now) - 60s` | STS credential cache     |
-
-**What is never stored in Redis:** raw tokens, passwords, access tokens.
+Redis is used for rate limit state only. No secrets or user data are stored in Redis.
 
 ---
 
-## 8. Error Handling & Information Leakage
+## 7. Error Handling & Information Leakage
 
 ### Error Response Design
 
@@ -365,7 +248,6 @@ The `requestId` allows correlation with server-side Pino logs **without revealin
 - Stack traces
 - Database error messages (e.g., query syntax, table names)
 - Internal service error details
-- Whether an email exists in the database
 - STS credential details
 
 ### Logging
@@ -373,77 +255,64 @@ The `requestId` allows correlation with server-side Pino logs **without revealin
 Pino structured logging records:
 
 - `requestId` on every log line
-- `userId` on auth events
 - `err.type`, `err.message` (not full stack) in error logs
 - Tool names and conversation IDs
 
-Logs deliberately exclude: passwords, tokens, JWT payloads, AWS credentials.
+Logs deliberately exclude: AWS credentials, Claude API keys.
 
 ---
 
-## 9. Dependency Security
+## 8. Dependency Security
 
 ### Key Security-Relevant Dependencies
 
-| Package               | Version | Security function                             |
-| --------------------- | ------- | --------------------------------------------- |
-| `jose`                | ^5      | ESM-native JWT — actively maintained, audited |
-| `bcryptjs`            | ^2      | Pure-JS bcrypt — no native bindings, portable |
-| `helmet`              | ^8      | Security headers                              |
-| `express-rate-limit`  | ^7      | Rate limiting                                 |
-| `@aws-sdk/client-sts` | v3      | AWS STS — modular, actively maintained        |
-| `cookie-parser`       | ^1      | HTTP-only cookie parsing                      |
-| `zod`                 | ^3      | Input validation                              |
+| Package              | Version | Security function |
+| -------------------- | ------- | ----------------- |
+| `helmet`             | ^8      | Security headers  |
+| `express-rate-limit` | ^7      | Rate limiting     |
+| `zod`                | ^4      | Input validation  |
 
 ### What is not used (and why)
 
 | Package         | Avoided because                                             |
 | --------------- | ----------------------------------------------------------- |
-| `jsonwebtoken`  | CommonJS only; `jose` is more actively maintained           |
-| `bcrypt`        | Requires native binaries — platform-specific build issues   |
+| `jsonwebtoken`  | Not needed — no JWT auth in this project                    |
+| `bcrypt`        | Not needed — no password storage                            |
 | `aws-sdk` (v2)  | Deprecated; all-or-nothing import bloat                     |
 | `dotenv`        | Use `node --env-file` native flag instead                   |
 | `redis` package | `ioredis` has better reconnect logic and TypeScript support |
 
 ---
 
-## 10. OWASP Top 10 Mapping
+## 9. OWASP Top 10 Mapping
 
-| OWASP 2021                    | Risk                                | Mitigation in this project                                          |
-| ----------------------------- | ----------------------------------- | ------------------------------------------------------------------- |
-| A01 Broken Access Control     | IAM misconfig, data leakage         | JWT + RBAC; user_id in every DB query; STS per-user isolation       |
-| A02 Cryptographic Failures    | Weak password storage, plain tokens | bcrypt cost 12; SHA-256 for Redis keys; HS256 JWT; httpOnly cookies |
-| A03 Injection                 | SQL injection                       | 100% parameterized queries; Zod validation; no string interpolation |
-| A04 Insecure Design           | Token theft, CSRF                   | Token rotation; SameSite=Strict; separate refresh secret            |
-| A05 Security Misconfiguration | Missing headers, open CORS          | Helmet; CORS locked to specific origin; env schema validation       |
-| A06 Vulnerable Components     | Outdated deps                       | Modular AWS SDK v3; jose over jsonwebtoken                          |
-| A07 Auth Failures             | Brute force, timing attacks         | 3-layer brute-force defense; constant-time login                    |
-| A08 Software Integrity        | Supply chain                        | npm lockfile; no `any` TypeScript; no dynamic `require`             |
-| A09 Logging Failures          | Missing audit trail                 | Pino on every request; requestId correlation; userId on auth events |
-| A10 SSRF                      | External requests from user input   | Role ARN regex validation; no user-supplied URLs executed           |
+| OWASP 2021                    | Risk                              | Mitigation in this project                                          |
+| ----------------------------- | --------------------------------- | ------------------------------------------------------------------- |
+| A01 Broken Access Control     | Unrestricted endpoint access      | Rate limiting; Zod validation; parameterized queries                |
+| A02 Cryptographic Failures    | Secrets in plaintext              | All secrets in env vars only; TLS in production                     |
+| A03 Injection                 | SQL injection                     | 100% parameterized queries; Zod validation; no string interpolation |
+| A04 Insecure Design           | No rate limiting, no validation   | Rate limiting; body size limits; strict Zod schemas                 |
+| A05 Security Misconfiguration | Missing headers, open CORS        | Helmet; CORS locked to specific origin; env schema validation       |
+| A06 Vulnerable Components     | Outdated deps                     | Modular AWS SDK v3; regular `npm audit`                             |
+| A07 Auth Failures             | N/A — no auth in this project     | N/A                                                                 |
+| A08 Software Integrity        | Supply chain                      | npm lockfile; no `any` TypeScript; no dynamic `require`             |
+| A09 Logging Failures          | Missing audit trail               | Pino on every request; requestId correlation                        |
+| A10 SSRF                      | External requests from user input | AWS SDK handles endpoint resolution; user input never used as URL   |
 
 ---
 
-## 11. Secrets Management
+## 10. Secrets Management
 
 ### Current Implementation (Development)
 
 Secrets are loaded via `node --env-file=.env`. The file is in `.gitignore` — never committed.
 
-### Environment Variable Security Rules
-
-1. `JWT_SECRET` and `JWT_REFRESH_SECRET` must be **different** strings
-2. Both must be **≥ 32 characters** (enforced by Zod at startup)
-3. Generate with: `node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"`
-4. The global shell `ANTHROPIC_API_KEY` takes precedence over `.env` — be aware if you export it in `~/.zshrc`
-
 ### Production Recommendations
 
 | Secret                                                     | Recommended storage                                                      |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `JWT_SECRET` / `JWT_REFRESH_SECRET`                        | AWS Secrets Manager or HashiCorp Vault                                   |
 | `ANTHROPIC_API_KEY`                                        | AWS Secrets Manager                                                      |
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (STS caller) | Use IAM Instance Profile / ECS Task Role instead — no static keys needed |
 | `DATABASE_URL`                                             | AWS RDS IAM Auth or Secrets Manager                                      |
 
-**Ideal production setup:** Deploy on ECS/EC2 with an IAM Task Role that has `sts:AssumeRole` permission. Remove `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from environment entirely — `@aws-sdk/client-sts` will use the instance metadata service automatically.
+**Ideal production setup:** Deploy on ECS/EC2 with an IAM Task Role. Remove `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from environment entirely — `@aws-sdk/client-cost-explorer` will use the instance metadata service automatically.

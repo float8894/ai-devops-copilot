@@ -18,8 +18,6 @@ import { errorHandler } from './error-handler.js';
 import {
   AppError,
   DatabaseError,
-  AuthError,
-  ForbiddenError,
   NotFoundError,
   ValidationError,
   McpToolError,
@@ -99,37 +97,6 @@ describe('errorHandler middleware', () => {
       error: { code: string };
     };
     expect(body.error.code).toBe('DATABASE_ERROR');
-  });
-
-  it('returns 401 for AuthError', () => {
-    const res = makeRes();
-
-    errorHandler(
-      new AuthError('Unauthorized'),
-      makeReq() as Request,
-      res as unknown as Response,
-      makeNext(),
-    );
-
-    expect(res.status).toHaveBeenCalledWith(401);
-    const body = res._status.mock.results[0]?.value.json.mock.calls[0]?.[0] as {
-      error: { code: string; message: string };
-    };
-    expect(body.error.code).toBe('UNAUTHORIZED');
-    expect(body.error.message).toBe('Unauthorized');
-  });
-
-  it('returns 403 for ForbiddenError', () => {
-    const res = makeRes();
-
-    errorHandler(
-      new ForbiddenError('Access denied'),
-      makeReq() as Request,
-      res as unknown as Response,
-      makeNext(),
-    );
-
-    expect(res.status).toHaveBeenCalledWith(403);
   });
 
   it('returns 404 for NotFoundError', () => {

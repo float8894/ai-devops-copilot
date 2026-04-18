@@ -19,7 +19,7 @@ vi.mock('../config/env.js', () => ({
   },
 }));
 
-const mockSend = vi.fn();
+const { mockSend } = vi.hoisted(() => ({ mockSend: vi.fn() }));
 vi.mock('@aws-sdk/client-cost-explorer', () => ({
   // eslint-disable-next-line prefer-arrow-callback
   CostExplorerClient: vi.fn().mockImplementation(function () {
@@ -101,44 +101,6 @@ describe('getAwsCosts', () => {
     const result = await getAwsCosts({});
     expect(result.entries).toEqual([]);
     expect(result.total_cost).toBe(0);
-  });
-
-  it('passes assumed credentials to the CostExplorerClient', async () => {
-    mockSend.mockResolvedValueOnce({ ResultsByTime: [] });
-
-    await getAwsCosts(
-      { time_range: '7d' },
-      {
-        accessKeyId: 'AKIASSUMED',
-        secretAccessKey: 'assumed-secret',
-        sessionToken: 'token-xyz',
-      },
-    );
-
-    expect(MockCostExplorerClient).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credentials: expect.objectContaining({
-          accessKeyId: 'AKIASSUMED',
-          sessionToken: 'token-xyz',
-        }),
-      }),
-    );
-  });
-
-  it('uses server-level credentials when no assumed credentials provided', async () => {
-    mockSend.mockResolvedValueOnce({ ResultsByTime: [] });
-
-    await getAwsCosts({ time_range: '7d' });
-
-    // When no credentials, client is built without explicit credentials
-    expect(MockCostExplorerClient).toHaveBeenCalledWith(
-      expect.objectContaining({ region: 'us-east-1' }),
-    );
-    const callArg = MockCostExplorerClient.mock.calls[0]?.[0] as Record<
-      string,
-      unknown
-    >;
-    expect(callArg?.['credentials']).toBeUndefined();
   });
 
   it('defaults to 30d time_range and SERVICE group_by', async () => {

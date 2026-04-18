@@ -4,7 +4,6 @@ import {
   type GetCostAndUsageCommandInput,
 } from '@aws-sdk/client-cost-explorer';
 import { env } from '../config/env.js';
-import type { AssumedCredentials } from '../lib/sts.js';
 import type {
   AwsCostEntry,
   CostTimeRange,
@@ -16,20 +15,7 @@ export interface GetAwsCostsInput {
   group_by?: CostGroupBy | undefined;
 }
 
-function buildClient(credentials?: AssumedCredentials): CostExplorerClient {
-  if (credentials) {
-    return new CostExplorerClient({
-      region: env.AWS_REGION,
-      credentials: {
-        accessKeyId: credentials.accessKeyId,
-        secretAccessKey: credentials.secretAccessKey,
-        sessionToken: credentials.sessionToken,
-      },
-    });
-  }
-  // Fallback to server-level credentials (env vars) for dev/testing
-  return new CostExplorerClient({ region: env.AWS_REGION });
-}
+const costClient = new CostExplorerClient({ region: env.AWS_REGION });
 
 export interface GetAwsCostsResult {
   entries: AwsCostEntry[];
@@ -53,13 +39,11 @@ function getDateRange(timeRange: CostTimeRange): {
 
 export async function getAwsCosts(
   input: GetAwsCostsInput,
-  credentials?: AssumedCredentials,
 ): Promise<GetAwsCostsResult> {
   const time_range = input.time_range ?? '30d';
   const group_by = input.group_by ?? 'SERVICE';
 
   const { start, end } = getDateRange(time_range);
-  const costClient = buildClient(credentials);
 
   const params: GetCostAndUsageCommandInput = {
     TimePeriod: { Start: start, End: end },
