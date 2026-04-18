@@ -59,6 +59,21 @@ jobs:
         env:
           PGPASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
 
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://copilot:${{ secrets.CI_POSTGRES_PASSWORD }}@localhost:5432/copilot_db
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: ci-test-jwt-secret-that-is-at-least-32-characters-long
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-that-is-at-least-32-chars
+          PORT: 3000
+          ANTHROPIC_API_KEY: sk-ant-ci-placeholder-not-real-for-unit-tests-only-xxxxxx
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+          AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+          ALLOWED_ORIGIN: http://localhost:4200
+
       - name: TypeScript type check
         run: npm run typecheck
 
