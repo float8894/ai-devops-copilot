@@ -12,6 +12,60 @@ const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 
 type Message = Anthropic.MessageParam;
 
+// ---------------------------------------------------------------------------
+// Shared tool execution — used by both batch and streaming agentic loops
+// ---------------------------------------------------------------------------
+
+async function executeToolBatch(
+  toolCallBlocks: Anthropic.Messages.ContentBlock[],
+  convId: string,
+  awsCredentials: AssumedCredentials | undefined,
+  toolsUsed: string[],
+  onToolStart?: (name: string) => void,
+  onToolDone?: (name: string) => void,
+): Promise<Anthropic.Messages.ToolResultBlockParam[]> {
+  return Promise.all(
+    toolCallBlocks
+      .filter(
+        (b): b is Anthropic.Messages.ToolUseBlock => b.type === 'tool_use',
+      )
+      .map(async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
+        onToolStart?.(block.name);
+        log.info(
+          { tool: block.name, input: block.input, conversation_id: convId },
+          'Executing tool',
+        );
+        toolsUsed.push(block.name);
+
+        try {
+          const result = await dispatchTool(
+            block.name,
+            block.input as Record<string, unknown>,
+            awsCredentials,
+          );
+          onToolDone?.(block.name);
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: JSON.stringify(result),
+          };
+        } catch (err) {
+          log.error(
+            { err, tool: block.name, conversation_id: convId },
+            'Tool execution failed',
+          );
+          onToolDone?.(block.name);
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+            is_error: true,
+          };
+        }
+      }),
+  );
+}
+
 export interface CopilotResult {
   reply: string;
   toolsUsed: string[];
@@ -142,56 +196,17 @@ export async function runCopilotQuery(
     }
 
     // Append Claude's assistant turn (including tool_use blocks) to history
-    const assistantMessage: Message = {
-      role: 'assistant',
-      content: response.content,
-    };
-    messages.push(assistantMessage);
+    messages.push({ role: 'assistant', content: response.content });
 
     // Execute all tool calls in this turn in parallel
     const toolCallBlocks = response.content.filter(
       (b) => b.type === 'tool_use',
     );
-
-    const validResults = await Promise.all(
-      toolCallBlocks.map(
-        async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
-          if (block.type !== 'tool_use') {
-            // Unreachable — filter above guarantees tool_use only
-            throw new Error('Unexpected block type');
-          }
-
-          log.info(
-            { tool: block.name, input: block.input, conversation_id: convId },
-            'Executing tool',
-          );
-          toolsUsed.push(block.name);
-
-          try {
-            const result = await dispatchTool(
-              block.name,
-              block.input as Record<string, unknown>,
-              awsCredentials,
-            );
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify(result),
-            };
-          } catch (err) {
-            log.error(
-              { err, tool: block.name, conversation_id: convId },
-              'Tool execution failed',
-            );
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-              is_error: true,
-            };
-          }
-        },
-      ),
+    const validResults = await executeToolBatch(
+      toolCallBlocks,
+      convId,
+      awsCredentials,
+      toolsUsed,
     );
 
     messages.push({ role: 'user', content: validResults });
@@ -331,48 +346,13 @@ export async function runCopilotQueryStream(
     const toolCallBlocks = response.content.filter(
       (b) => b.type === 'tool_use',
     );
-
-    const toolResults = await Promise.all(
-      toolCallBlocks.map(
-        async (block): Promise<Anthropic.Messages.ToolResultBlockParam> => {
-          if (block.type !== 'tool_use') {
-            throw new Error('Unexpected block type');
-          }
-
-          onEvent({ type: 'tool_start', tool: block.name });
-          log.info(
-            { tool: block.name, input: block.input, conversation_id: convId },
-            'Executing tool (stream)',
-          );
-          toolsUsed.push(block.name);
-
-          try {
-            const result = await dispatchTool(
-              block.name,
-              block.input as Record<string, unknown>,
-              awsCredentials,
-            );
-            onEvent({ type: 'tool_done', tool: block.name });
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: JSON.stringify(result),
-            };
-          } catch (err) {
-            log.error(
-              { err, tool: block.name, conversation_id: convId },
-              'Tool execution failed (stream)',
-            );
-            onEvent({ type: 'tool_done', tool: block.name });
-            return {
-              type: 'tool_result',
-              tool_use_id: block.id,
-              content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-              is_error: true,
-            };
-          }
-        },
-      ),
+    const toolResults = await executeToolBatch(
+      toolCallBlocks,
+      convId,
+      awsCredentials,
+      toolsUsed,
+      (name) => onEvent({ type: 'tool_start', tool: name }),
+      (name) => onEvent({ type: 'tool_done', tool: name }),
     );
 
     messages.push({ role: 'user', content: toolResults });
