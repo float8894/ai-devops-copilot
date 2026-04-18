@@ -1,10 +1,15 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import type { QueryFailedJobsResult } from '../tools/query-failed-jobs.js';
 import type { GetAwsCostsResult } from '../tools/get-aws-costs.js';
 import type { RedisStats } from '../models/job.js';
+import type { DbSchemaResult } from '../tools/get-db-schema.js';
+import type { RunSqlQueryResult } from '../tools/run-sql-query.js';
 
-vi.mock('../tools/query-failed-jobs.js', () => ({
-  queryFailedJobs: vi.fn(),
+vi.mock('../tools/get-db-schema.js', () => ({
+  getDbSchema: vi.fn(),
+}));
+
+vi.mock('../tools/run-sql-query.js', () => ({
+  runSqlQuery: vi.fn(),
 }));
 
 vi.mock('../tools/get-redis-stats.js', () => ({
@@ -20,12 +25,14 @@ vi.mock('../lib/logger.js', () => ({
 }));
 
 import { dispatchTool } from './tool-dispatcher.js';
-import { queryFailedJobs } from '../tools/query-failed-jobs.js';
+import { getDbSchema } from '../tools/get-db-schema.js';
+import { runSqlQuery } from '../tools/run-sql-query.js';
 import { getRedisStats } from '../tools/get-redis-stats.js';
 import { getAwsCosts } from '../tools/get-aws-costs.js';
 import { McpToolError } from '../errors/index.js';
 
-const mockQueryFailedJobs = vi.mocked(queryFailedJobs);
+const mockGetDbSchema = vi.mocked(getDbSchema);
+const mockRunSqlQuery = vi.mocked(runSqlQuery);
 const mockGetRedisStats = vi.mocked(getRedisStats);
 const mockGetAwsCosts = vi.mocked(getAwsCosts);
 
@@ -41,40 +48,67 @@ describe('dispatchTool', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // query_failed_jobs
+  // get_db_schema
   // ---------------------------------------------------------------------------
 
-  it('routes "query_failed_jobs" to queryFailedJobs', async () => {
-    const fakeResult = {
-      count: 1,
-      jobs: [],
-      time_range: '24h',
-      error_patterns: {},
-    } as QueryFailedJobsResult;
-    mockQueryFailedJobs.mockResolvedValue(fakeResult);
+  it('routes "get_db_schema" to getDbSchema', async () => {
+    const fakeResult: DbSchemaResult = { tables: [], tableCount: 0 };
+    mockGetDbSchema.mockResolvedValue(fakeResult);
 
-    const result = await dispatchTool('query_failed_jobs', {
-      time_range: '24h',
-      limit: 10,
-    });
+    const result = await dispatchTool('get_db_schema', {});
 
-    expect(mockQueryFailedJobs).toHaveBeenCalledOnce();
+    expect(mockGetDbSchema).toHaveBeenCalledOnce();
     expect(result).toBe(fakeResult);
   });
 
-  it('passes time_range and limit to queryFailedJobs', async () => {
-    mockQueryFailedJobs.mockResolvedValue({
+  it('ignores any input passed to get_db_schema', async () => {
+    mockGetDbSchema.mockResolvedValue({ tables: [], tableCount: 0 });
+
+    await dispatchTool('get_db_schema', { unexpected: 'param' });
+
+    expect(mockGetDbSchema).toHaveBeenCalledOnce();
+  });
+
+  // ---------------------------------------------------------------------------
+  // run_sql_query
+  // ---------------------------------------------------------------------------
+
+  it('routes "run_sql_query" to runSqlQuery', async () => {
+    const fakeResult: RunSqlQueryResult = {
+      rows: [],
       count: 0,
-      jobs: [],
-      time_range: '7d',
-      error_patterns: {},
-    } as QueryFailedJobsResult);
+      truncated: false,
+    };
+    mockRunSqlQuery.mockResolvedValue(fakeResult);
 
-    await dispatchTool('query_failed_jobs', { time_range: '7d', limit: 50 });
+    const result = await dispatchTool('run_sql_query', { sql: 'SELECT 1' });
 
-    expect(mockQueryFailedJobs).toHaveBeenCalledWith({
-      time_range: '7d',
-      limit: 50,
+    expect(mockRunSqlQuery).toHaveBeenCalledOnce();
+    expect(result).toBe(fakeResult);
+  });
+
+  it('passes sql and limit to runSqlQuery', async () => {
+    mockRunSqlQuery.mockResolvedValue({ rows: [], count: 0, truncated: false });
+
+    await dispatchTool('run_sql_query', {
+      sql: 'SELECT * FROM jobs',
+      limit: 25,
+    });
+
+    expect(mockRunSqlQuery).toHaveBeenCalledWith({
+      sql: 'SELECT * FROM jobs',
+      limit: 25,
+    });
+  });
+
+  it('passes undefined limit when not provided', async () => {
+    mockRunSqlQuery.mockResolvedValue({ rows: [], count: 0, truncated: false });
+
+    await dispatchTool('run_sql_query', { sql: 'SELECT 1' });
+
+    expect(mockRunSqlQuery).toHaveBeenCalledWith({
+      sql: 'SELECT 1',
+      limit: undefined,
     });
   });
 

@@ -1,24 +1,22 @@
 import { vi, describe, it, expect } from 'vitest';
 
-// Capture the tool handler before any imports run
+type ToolHandler = (args: Record<string, unknown>) => Promise<{
+  content: Array<{ type: string; text: string }>;
+  isError?: boolean;
+}>;
+
+// Capture tool handlers keyed by tool name before any imports run
 const captured = vi.hoisted<{
-  handler:
-    | ((args: { time_range: string; limit: number }) => Promise<{
-        content: Array<{ type: string; text: string }>;
-        isError?: boolean;
-      }>)
-    | null;
-}>(() => ({ handler: null }));
+  schemaHandler: ToolHandler | null;
+  sqlHandler: ToolHandler | null;
+}>(() => ({ schemaHandler: null, sqlHandler: null }));
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
   McpServer: vi.fn().mockImplementation(function () {
     return {
-      registerTool: (
-        _name: string,
-        _cfg: unknown,
-        handler: typeof captured.handler,
-      ) => {
-        captured.handler = handler;
+      registerTool: (name: string, _cfg: unknown, handler: ToolHandler) => {
+        if (name === 'get_db_schema') captured.schemaHandler = handler;
+        else if (name === 'run_sql_query') captured.sqlHandler = handler;
       },
       connect: vi.fn().mockResolvedValue(undefined),
     };
@@ -61,45 +59,54 @@ vi.mock('../lib/start-mcp-http.js', () => ({
   startMcpHttp: vi.fn(),
 }));
 
-vi.mock('../tools/query-failed-jobs.js', () => ({
-  queryFailedJobs: vi.fn(),
+vi.mock('../tools/get-db-schema.js', () => ({
+  getDbSchema: vi.fn(),
+}));
+
+vi.mock('../tools/run-sql-query.js', () => ({
+  runSqlQuery: vi.fn(),
 }));
 
 // Import server module — triggers registerTool via top-level code
 await import('../mcp-servers/postgres-server.js');
-import { queryFailedJobs } from '../tools/query-failed-jobs.js';
-import type { QueryFailedJobsResult } from '../tools/query-failed-jobs.js';
+import { getDbSchema } from '../tools/get-db-schema.js';
+import { runSqlQuery } from '../tools/run-sql-query.js';
+import type { DbSchemaResult } from '../tools/get-db-schema.js';
+import type { RunSqlQueryResult } from '../tools/run-sql-query.js';
 
-const mockQueryFailedJobs = vi.mocked(queryFailedJobs);
+const mockGetDbSchema = vi.mocked(getDbSchema);
+const mockRunSqlQuery = vi.mocked(runSqlQuery);
 
 // ---------------------------------------------------------------------------
-// Tests
+// Tests — get_db_schema handler
 // ---------------------------------------------------------------------------
 
-describe('postgres MCP server — query_failed_jobs handler', () => {
-  it('captures the tool handler during server registration', () => {
-    expect(captured.handler).not.toBeNull();
+describe('postgres MCP server — get_db_schema handler', () => {
+  it('captures the get_db_schema handler during server registration', () => {
+    expect(captured.schemaHandler).not.toBeNull();
   });
 
-  it('returns JSON content on successful tool call', async () => {
-    const fakeResult: QueryFailedJobsResult = {
-      count: 2,
-      jobs: [
+  it('returns JSON content on successful schema fetch', async () => {
+    const fakeResult: DbSchemaResult = {
+      tables: [
         {
-          id: '1',
-          name: 'SendEmail',
-          status: 'failed',
-          error_message: 'SMTP fail',
-          created_at: new Date('2026-01-01'),
-          updated_at: new Date('2026-01-01'),
+          name: 'jobs',
+          columns: [
+            {
+              name: 'id',
+              type: 'uuid',
+              nullable: false,
+              isPrimaryKey: true,
+              isForeignKey: false,
+            },
+          ],
         },
       ],
-      time_range: '24h',
-      error_patterns: { 'SMTP fail': 1 },
+      tableCount: 1,
     };
-    mockQueryFailedJobs.mockResolvedValue(fakeResult);
+    mockGetDbSchema.mockResolvedValue(fakeResult);
 
-    const result = await captured.handler!({ time_range: '24h', limit: 10 });
+    const result = await captured.schemaHandler!({});
 
     expect(result.isError).toBeUndefined();
     expect(result.content).toHaveLength(1);
@@ -109,20 +116,63 @@ describe('postgres MCP server — query_failed_jobs handler', () => {
     );
   });
 
-  it('returns isError:true when queryFailedJobs throws — never re-throws', async () => {
-    mockQueryFailedJobs.mockRejectedValue(new Error('Connection refused'));
+  it('returns isError:true when getDbSchema throws — never re-throws', async () => {
+    mockGetDbSchema.mockRejectedValue(new Error('Connection refused'));
 
-    const result = await captured.handler!({ time_range: '24h', limit: 10 });
+    const result = await captured.schemaHandler!({});
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain('Error');
   });
 
   it('includes the error message in the error response', async () => {
-    mockQueryFailedJobs.mockRejectedValue(new Error('DB down'));
+    mockGetDbSchema.mockRejectedValue(new Error('schema query failed'));
 
-    const result = await captured.handler!({ time_range: '1h', limit: 5 });
+    const result = await captured.schemaHandler!({});
 
-    expect(result.content[0]?.text).toContain('DB down');
+    expect(result.content[0]?.text).toContain('schema query failed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — run_sql_query handler
+// ---------------------------------------------------------------------------
+
+describe('postgres MCP server — run_sql_query handler', () => {
+  it('captures the run_sql_query handler during server registration', () => {
+    expect(captured.sqlHandler).not.toBeNull();
+  });
+
+  it('returns JSON content on successful query', async () => {
+    const fakeResult: RunSqlQueryResult = {
+      rows: [{ id: 1, name: 'test' }],
+      count: 1,
+      truncated: false,
+    };
+    mockRunSqlQuery.mockResolvedValue(fakeResult);
+
+    const result = await captured.sqlHandler!({ sql: 'SELECT 1' });
+
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toHaveLength(1);
+    expect(result.content[0]?.type).toBe('text');
+    expect(JSON.parse(result.content[0]?.text ?? '{}')).toEqual(fakeResult);
+  });
+
+  it('returns isError:true when runSqlQuery throws — never re-throws', async () => {
+    mockRunSqlQuery.mockRejectedValue(new Error('read-only transaction'));
+
+    const result = await captured.sqlHandler!({ sql: 'DELETE FROM jobs' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('Error');
+  });
+
+  it('includes the error message in the sql error response', async () => {
+    mockRunSqlQuery.mockRejectedValue(new Error('syntax error at position 5'));
+
+    const result = await captured.sqlHandler!({ sql: 'SELEC 1' });
+
+    expect(result.content[0]?.text).toContain('syntax error at position 5');
   });
 });

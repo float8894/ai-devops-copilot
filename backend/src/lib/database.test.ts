@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { query, db } from './database.js';
-import type { JobRow } from '../models/job.js';
+
+// Local row type for the integration test's jobs table queries
+interface JobRow {
+  id: string;
+  name: string;
+  status: string;
+  error_message: string | null;
+  created_at: Date;
+}
 
 describe('Database - PostgreSQL integration', () => {
   // Clean up test data before and after
@@ -55,10 +63,9 @@ describe('Database - PostgreSQL integration', () => {
     });
 
     it('should return empty array when no results match', async () => {
-      const rows = await query<JobRow>(
-        `SELECT * FROM jobs WHERE name = $1`,
-        ['nonexistent-job-xyz'],
-      );
+      const rows = await query<JobRow>(`SELECT * FROM jobs WHERE name = $1`, [
+        'nonexistent-job-xyz',
+      ]);
 
       expect(rows).toEqual([]);
     });
