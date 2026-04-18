@@ -16,7 +16,7 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: copilot
-          POSTGRES_PASSWORD: copilot_dev
+          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
           POSTGRES_DB: copilot_db
         ports:
           - 5432:5432
@@ -55,9 +55,9 @@ jobs:
 
       - name: Apply DB schema
         run: |
-          psql "postgresql://copilot:copilot_dev@localhost:5432/copilot_db" -f docker/init.sql
+          psql "postgresql://copilot:${{ secrets.CI_POSTGRES_PASSWORD }}@localhost:5432/copilot_db" -f docker/init.sql
         env:
-          PGPASSWORD: copilot_dev
+          PGPASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
 
       - name: TypeScript type check
         run: npm run typecheck
@@ -67,12 +67,13 @@ jobs:
         env:
           NODE_ENV: test
           PORT: 3000
-          DATABASE_URL: postgresql://copilot:copilot_dev@localhost:5432/copilot_db
+          DATABASE_URL: postgresql://copilot:${{ secrets.CI_POSTGRES_PASSWORD }}@localhost:5432/copilot_db
           REDIS_URL: redis://localhost:6379
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Dummy values — unit tests mock all external clients; nothing real is called
+          ANTHROPIC_API_KEY: sk-ant-ci-placeholder-not-real-for-unit-tests-only-xxxxxx
           AWS_REGION: us-east-1
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          AWS_ACCESS_KEY_ID: AKIAIOSFODNN7EXAMPLE
+          AWS_SECRET_ACCESS_KEY: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+          JWT_SECRET: ci-test-jwt-secret-that-is-at-least-32-characters-long
+          JWT_REFRESH_SECRET: ci-test-refresh-secret-that-is-at-least-32-chars
           ALLOWED_ORIGIN: http://localhost:4200
